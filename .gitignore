@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Google credentials
+google_credentials.json
+*.json.key
+
+# API Keys (never commit these!)
+.env
+.env.local
+*.key
+*_api_key.txt
+*_secret.txt
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+daily_collect.log
+
+# Exports
+exports/
+*.xlsx
+*.csv
+
+# Environment
+.env
+.env.local
+

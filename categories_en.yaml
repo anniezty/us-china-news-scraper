@@ -1,0 +1,33 @@
+categories:
+  # Narrowed per request: focus on White House / Congress / Trump, not all agencies
+  Administration: (White\s+House|Biden\s+(administration|government|administration's)|Trump\s+(administration|government|administration's|administration)|Congress|Congressional|Senate|House\s+of\s+Representatives|Capitol\s+Hill|Executive\s+Order|presidential\s+order|Oval\s+Office|Congress\s+(passed|approve|vote|hear|committee))
+  Trade & Commerce: (tariff|trade deal|USTR|Section 301|market access|WTO|export|import|supply
+    chain)
+  Shipping: (shipping|port|container|shipbuilding|maritime logistics)
+  Chips: (semiconductor|chip|lithography|ASML|SMIC|TSMC|EDA|wafer|foundry|Nvidia)
+  Science & AI: (artificial intelligence|\bAI\b|machine learning|generative AI|foundation
+    model|large language model|\bLLM\b|frontier model|model training|AI safety|model
+    safety|governance of AI|A100|H100|AI chip|ChatGPT|OpenAI|Anthropic)
+  Tech & National Security: (export control|entity list|CFIUS|critical technology|cybersecurity|espionage)
+  Biotech: (biotech|biotechnology|biopharma|pharmaceutical|drug|vaccine|gene edit|CRISPR|synthetic
+    biology|biosecurity|clinical trial|FDA|NMPA|mRNA)
+  # Focused on green energy/EV/renewables
+  Climate & Energy: (climate\s*policy|climate\s*target|net\s*zero|carbon\s*(neutrality|emission|tax|pricing)|renewable\s*energy|clean\s*energy|solar|photovoltaic|wind\s*turbine|hydrogen|EV\b|electric\s*vehicle|battery|charging\s*(pile|infrastructure)|grid\s*modernization|energy\s*transition)
+  Critical Minerals: (rare earth|critical mineral|lithium|cobalt|nickel|graphite)
+  Business & Investment: (FDI|investment|merger|acquisition|IPO|private equity|venture|sanctions
+    risk)
+  Digital Currencies: (digital yuan|CBDC|stablecoin|crypto regulation)
+  # Collaboration with other countries/blocks beyond just US-China bilateral
+  US Multilateralism: (G7|G20|NATO|AUKUS|Quad|IMF|World\s*Bank|OECD|EU\b|ASEAN|UN\b|UNSC|BRICS|SCO|APEC|CPTPP|RCEP|AU\b|OAS|joint\s*(statement|communiqué)|trilateral|multilateral|ministerial)
+  # Adversarial/competition dynamics
+  Geopolitics: (deterrence|containment|counter\s*\w+|sanction(s)?|arms\s*(sale|transfer)|weapon(s)?|military\s*aid|security\s*pact|alignment|rival(ry)?|competition|great\s*power\s*competition|Indo-Pacific|strategic\s*competition|confrontation)
+  China-Russia: (China.*Russia|Russia.*China|Sino-Russian|Moscow|sanction evasion)
+  Taiwan: (Taiwan|Taipei|strait|cross-strait|TTW|TSMC.*Taiwan)
+  Military & Maritime: (PLA|navy|missile|maritime patrol|gray zone|freedom of navigation)
+  Influence & Espionage: (influence operation|spy|espionage|propaganda|disinformation)
+  China's Economy: (China.*economy|GDP|deflation|stimulus|property sector|real estate)
+  # Strictly university/academic context - requires university/college context
+  Higher Education: ((university|universities|college|colleges)\s+(student|students|professor|professors|faculty|researcher|research|program|partnership|collaboration|funding|grant|visa|warning|ban|cut|slash))|((professor|faculty|postdoc|postdoctoral|scholar)\s+(at|from|in|of)\s+(university|universities|college|colleges))|(campus\s+(security|warning|restriction|visa|research))|((NSF|NIH|DOE\s+Office\s+of\s+Science|Education\s+Department)\s+(funding|grant|cut|slash))|((visa\s+(restriction|scrutiny|ban|warning))\s+(for\s+)?(university|college|student|scholar))|(talent\s+program|research\s+collaboration|research\s+partnership)\s+(university|college|academic)
+  Human Rights: (human rights|Xinjiang|Uyghur|Hong Kong.*rights|Tibet)
+  Fentanyl: (fentanyl|precursor|cartel|pill|opioid)
+  Inside China: (NPC|Party Congress|provincial|SOE|regulator|state council|local policy)

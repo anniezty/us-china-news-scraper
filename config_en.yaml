@@ -1,0 +1,59 @@
+rss_feeds:
+  nytimes.com:
+  - https://www.nytimes.com/svc/collections/v1/publish/https://www.nytimes.com/topic/destination/china/rss.xml
+  thediplomat.com:
+  - https://thediplomat.com/countries/china/feed
+  foreignaffairs.com:
+  - https://www.foreignaffairs.com/feeds/region/China/rss.xml
+  - https://www.foreignaffairs.com/feeds/region/Taiwan/rss.xml
+  scmp.com:
+  - https://www.scmp.com/rss/4/feed
+  foxnews.com:
+  - https://www.foxnews.com/rss.xml?tag=china
+  pekingnology.com:
+  - https://pekingnology.substack.com/feed
+  thewirechina.com:
+  - https://www.thewirechina.com/feed
+  bbc.com:
+  - https://feeds.bbci.co.uk/news/world/asia/china/rss.xml
+  chinafile.com:
+  - https://feeds.feedburner.com/chinafile/All
+  reuters.com:
+  - "https://rss-bridge.org/bridge01/?action=display&bridge=ReutersBridge&feed=china&format=Atom"
+  economist.com:
+  - https://www.economist.com/china/rss.xml
+
+
+  
+
+google_news:
+  enabled: true
+  per_domain: true
+  base_keywords:
+  - '"US China" OR "U.S.-China" OR "United States China" OR "Washington Beijing"'
+  - Taiwan OR "South China Sea" OR "export controls" OR semiconductors OR tariffs
+    OR sanctions
+  - '"national security" OR espionage OR "human rights" OR "chips" OR "tech" OR "supply
+    chain"'
+api_fallback:
+  enabled: false
+  provider: newsapi
+  api_key: ''
+harvest_policy:
+  prefer_rss: true
+  fallback_google: true
+  fallback_api: false
+  min_per_source: 0
+  max_per_source: 50
+relevance:
+  us_china_only_keywords:
+  - US China|U\.S\.-China|United States China|Washington Beijing
+  - Taiwan|South China Sea|semiconductor|export control|tariff|sanction|decoupling|de-risking
+  - national security|espionage|Huawei|TikTok|SMIC|ASML|Nvidia|TSMC
+  - human rights|Xinjiang|Uyghur|Hong Kong|Tibet
+  - Indo-Pacific|AUKUS|Quad
+  negative_patterns:
+  - Premier League|celebrity|K-pop|football|movie|entertainment
+  - Hong Kong.*(property|local court|crime|typhoon|traffic|covid update)
+  - Macau|Macao
+  - Singapore local|Malaysia local|Philippines local|Bolivia|Paraguay
