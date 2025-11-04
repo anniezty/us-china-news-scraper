@@ -103,8 +103,9 @@ if run:
                         if not sheets_df.empty and 'Date' in sheets_df.columns:
                             # 过滤日期范围
                             sheets_df['Date'] = pd.to_datetime(sheets_df['Date'], errors='coerce')
-                            date_from_dt = pd.to_datetime(start_date)
-                            date_to_dt = pd.to_datetime(end_date)
+                            # 处理日期范围：如果只有日期（没有时间），end_date 应该包含当天的所有时间
+                            date_from_dt = pd.to_datetime(start_date).normalize()  # 设置为 00:00:00
+                            date_to_dt = pd.to_datetime(end_date).normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)  # 设置为 23:59:59
                             sheets_df = sheets_df[
                                 (sheets_df['Date'] >= date_from_dt) & 
                                 (sheets_df['Date'] <= date_to_dt)
