@@ -199,7 +199,77 @@ if run:
             unc = df[df["Category"] == "Uncategorized"]
             if not unc.empty:
                 st.write(f"- Uncategorized: **{len(unc)}**")
-
+            
+            # 热点榜功能
+            st.markdown("---")
+            st.markdown("## 🔥 热点榜")
+            st.markdown("显示被多家媒体报道的新闻（按类别分组）")
+            
+            try:
+                from news_trending import group_similar_news, generate_trending_rank
+                
+                # 识别相似新闻并分组
+                with st.spinner("正在分析新闻热点..."):
+                    df_with_groups = group_similar_news(df.copy(), similarity_threshold=0.6)
+                    
+                    # 生成热点榜
+                    trending_df = generate_trending_rank(df_with_groups, top_n=3)
+                    
+                    if not trending_df.empty:
+                        # 获取所有类别
+                        categories = sorted(trending_df['Category'].unique())
+                        
+                        # 使用 tabs 让用户选择类别
+                        if len(categories) > 1:
+                            tabs = st.tabs(categories)
+                            for idx, category in enumerate(categories):
+                                with tabs[idx]:
+                                    category_trending = trending_df[trending_df['Category'] == category]
+                                    
+                                    for _, row in category_trending.iterrows():
+                                        with st.container():
+                                            st.markdown(f"### 🔥 {row['SourceCount']} 家媒体报道")
+                                            st.markdown(f"**{row['Headline']}**")
+                                            st.markdown(f"**报道媒体**: {row['Outlets']}")
+                                            if row.get('Date'):
+                                                st.markdown(f"**日期**: {row['Date']}")
+                                            
+                                            # 显示所有链接
+                                            if row.get('URLs') and len(row['URLs']) > 0:
+                                                st.markdown("**相关报道**:")
+                                                for url in row['URLs'][:5]:  # 最多显示5个链接
+                                                    st.markdown(f"- [查看原文]({url})")
+                                            
+                                            st.markdown("---")
+                        else:
+                            # 只有一个类别，直接显示
+                            category = categories[0]
+                            category_trending = trending_df[trending_df['Category'] == category]
+                            
+                            for _, row in category_trending.iterrows():
+                                with st.container():
+                                    st.markdown(f"### 🔥 {row['SourceCount']} 家媒体报道")
+                                    st.markdown(f"**{row['Headline']}**")
+                                    st.markdown(f"**报道媒体**: {row['Outlets']}")
+                                    if row.get('Date'):
+                                        st.markdown(f"**日期**: {row['Date']}")
+                                    
+                                    # 显示所有链接
+                                    if row.get('URLs') and len(row['URLs']) > 0:
+                                        st.markdown("**相关报道**:")
+                                        for url in row['URLs'][:5]:  # 最多显示5个链接
+                                            st.markdown(f"- [查看原文]({url})")
+                                    
+                                    st.markdown("---")
+                    else:
+                        st.info("暂无热点新闻（需要至少2家媒体报道同一新闻）")
+            except ImportError as e:
+                st.warning(f"⚠️ 热点榜功能暂不可用: {e}")
+            except Exception as e:
+                st.warning(f"⚠️ 生成热点榜时出错: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+ 
             # Build Excel in-memory
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
