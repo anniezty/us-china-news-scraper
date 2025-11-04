@@ -34,6 +34,8 @@ rss_feeds:
   - https://restofworld.org/tag/china/feed/
   wired.com:
   - https://rsshub.app/wired/tag/china
+  apnews.com:
+  - https://rsshub.app/apnews/topics/china
 
 
   
