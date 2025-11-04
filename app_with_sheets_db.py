@@ -190,24 +190,22 @@ if run:
             df = df.copy()
             df["Category"] = df.apply(assign_category, axis=1)
 
-            # Per-category counts - 使用三列布局
+            # Per-category counts - 使用两列布局更直观
             st.markdown("### 📊 Summary")
             
             # 计算总数
             total = len(df)
+            unc = df[df["Category"] == "Uncategorized"]
+            unc_count = len(unc) if not unc.empty else 0
             
-            # 使用三列布局，只显示两个指标
-            col1, col2, col3 = st.columns(3)
+            # 只显示两个关键指标
+            col1, col2 = st.columns(2)
             
             with col1:
                 st.metric("📰 Total Articles", total)
             
             with col2:
                 st.metric("📂 Categories", len(compiled))
-            
-            with col3:
-                # 空白列，保持布局平衡
-                pass
             
             # 按类别显示统计（使用两列）
             st.markdown("---")
