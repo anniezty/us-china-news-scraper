@@ -86,6 +86,7 @@ def normalize_source_short(raw_source: str) -> str:
         "bbc.com": "BBC",
         "feeds.bbci.co.uk": "BBC",
         "reuters.com": "Reuters",
+        "bloomberg.com": "Bloomberg",
         "economist.com": "Economist",
         "chinafile.com": "ChinaFile",
         "washingtonpost.com": "WaPo",
@@ -100,6 +101,7 @@ def normalize_source_short(raw_source: str) -> str:
         "ft.com": "FT",
         "wired.com": "Wired",
         "prcleader.org": "CLM",
+        "wsj.com": "WSJ",
     }
     if dom in domain_map:
         return domain_map[dom]
