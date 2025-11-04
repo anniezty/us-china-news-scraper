@@ -5,7 +5,7 @@
 """
 from datetime import datetime, date
 from collector import collect
-from google_sheets_integration import export_to_sheets, get_sheets_client
+from google_sheets_integration import export_to_sheets, export_to_sheets_append, get_sheets_client
 import yaml
 import os
 
@@ -56,14 +56,21 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     
     # 上传到 Google Sheets
     try:
-        # 使用日期范围作为 sheet 名称
-        sheet_name = f"Week {today_str}"
+        # 计算本周的开始日期（周一）
+        from datetime import timedelta
+        days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+        week_start = today - timedelta(days=days_since_monday)
+        week_end = week_start + timedelta(days=6)  # 周日
+        
+        # 使用本周日期范围作为 sheet 名称
+        sheet_name = f"Week {week_start.isoformat()} to {week_end.isoformat()}"
         
         # 只上传需要的列
         upload_df = df[["Nested?","URL","Date","Outlet","Headline","Nut Graph"]].copy()
         
         print(f"[{datetime.now()}] 正在上传到 Google Sheets: {sheet_name}...")
-        export_to_sheets(upload_df, spreadsheet_id, sheet_name, credentials_path)
+        # 追加模式：合并到本周的 sheet（去重）
+        export_to_sheets_append(upload_df, spreadsheet_id, sheet_name, credentials_path)
         
         print(f"[{datetime.now()}] ✅ 成功上传 {len(upload_df)} 篇文章到 Google Sheets")
         return (len(upload_df), len(upload_df))

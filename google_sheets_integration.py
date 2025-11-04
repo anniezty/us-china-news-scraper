@@ -121,6 +121,52 @@ def export_to_sheets(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = No
     
     print(f"✅ 已导出 {len(df)} 行数据到 Google Sheets: {sheet_name}")
 
+def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = None, 
+                            credentials_path: str = "google_credentials.json"):
+    """
+    追加 DataFrame 到 Google Sheets（不去重，追加到现有数据后面）
+    
+    Args:
+        df: 要追加的 DataFrame
+        spreadsheet_id: Google Sheets 的 ID
+        sheet_name: Sheet 名称
+        credentials_path: Google 凭证文件路径
+    """
+    client = get_sheets_client(credentials_path)
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    
+    # 选择或创建 sheet
+    if sheet_name:
+        try:
+            worksheet = spreadsheet.worksheet(sheet_name)
+            # 如果 sheet 已存在，读取现有数据用于去重
+            existing_data = worksheet.get_all_values()
+            if len(existing_data) > 1:
+                existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
+                # 按 URL 去重：只保留新数据中不存在的
+                if 'URL' in existing_df.columns and 'URL' in df.columns:
+                    existing_urls = set(existing_df['URL'].dropna())
+                    df = df[~df['URL'].isin(existing_urls)]
+                    if df.empty:
+                        print(f"⚠️ 所有数据已存在，跳过追加")
+                        return
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=10)
+            # 新 sheet，先写入标题
+            worksheet.append_row(df.columns.tolist())
+    else:
+        worksheet = spreadsheet.sheet1
+    
+    # 追加数据（分批写入）
+    if not df.empty:
+        batch_size = 100
+        for i in range(0, len(df), batch_size):
+            batch = df.iloc[i:i+batch_size]
+            values = batch.values.tolist()
+            worksheet.append_rows(values)
+        
+        print(f"✅ 已追加 {len(df)} 行数据到 Google Sheets: {sheet_name}")
+
 def create_weekly_sheet(df: pd.DataFrame, spreadsheet_id: str, 
                         credentials_path: str = "google_credentials.json"):
     """
