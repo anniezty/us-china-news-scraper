@@ -62,9 +62,7 @@ def normalize_source_short(raw_source: str) -> str:
         "https://feeds.nbcnews.com/": "NBC",
         "https://www.cbsnews.com/": "CBS",
         "https://www.chinafile.com/": "ChinaFile",
-        # RSSHub proxies
-        "https://rsshub.app/apnews/": "AP",
-        "https://rsshub.app/wired/": "Wired",
+        # RSSHub proxies (仅当使用时启用)
     }
     for k, v in mapping_starts.items():
         if raw_source.startswith(k):
@@ -101,6 +99,7 @@ def normalize_source_short(raw_source: str) -> str:
         "cnn.com": "CNN",
         "ft.com": "FT",
         "wired.com": "Wired",
+        "prcleader.org": "CLM",
     }
     if dom in domain_map:
         return domain_map[dom]

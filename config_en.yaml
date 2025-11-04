@@ -26,10 +26,8 @@ rss_feeds:
   - https://www.ft.com/china?format=rss
   foreignpolicy.com:
   - https://foreignpolicy.com/tag/china/feed/
-  wired.com:
-  - https://rsshub.app/wired/tag/china
-  apnews.com:
-  - https://rsshub.app/apnews/topics/china
+  prcleader.org:
+  - https://www.prcleader.org/blog-feed.xml
 
 
   
