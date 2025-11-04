@@ -201,7 +201,13 @@ def collect(config_path: str,
 
     # 读取 RSS
     rows = []
-    for dom, feed_url in feed_jobs:
+    for idx, (dom, feed_url) in enumerate(feed_jobs):
+        # 对 RSSHub 源添加延迟，避免同时发送多个请求触发限流
+        is_rsshub = "rsshub.app" in feed_url or "rss-bridge.org" in feed_url
+        if is_rsshub and idx > 0:
+            # 在 RSSHub 源之间添加 3 秒延迟，避免触发 429
+            time.sleep(3)
+        
         d = _fetch_feed(feed_url)
         for e in d.entries:
             row = _entry_to_row(e, dom, feed_url)
