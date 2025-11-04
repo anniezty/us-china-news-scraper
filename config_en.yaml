@@ -30,6 +30,12 @@ rss_feeds:
   - https://www.prcleader.org/blog-feed.xml
   warontherocks.com:
   - https://warontherocks.com/tag/china/feed/
+  politico.com:
+  - https://rsshub.app/politico/tag/china
+  washingtonpost.com:
+  - http://feeds.washingtonpost.com/rss/world
+  latimes.com:
+  - https://www.latimes.com/world-nation/rss2
   restofworld.org:
   - https://restofworld.org/tag/china/feed/
 
