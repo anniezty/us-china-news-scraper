@@ -26,48 +26,110 @@ def _in_range(dt: datetime | None, start: datetime, end: datetime) -> bool:
     return (dt >= start) and (dt <= end)
 
 def _fetch_feed(url: str) -> feedparser.FeedParserDict:
-    # 重试逻辑，对 RSSHub 等慢速源增加超时
+    # 重试逻辑，对 RSSHub 等慢速源增加超时和稳定性处理
     import requests
     from io import BytesIO
     
     # RSSHub 等源可能需要更长时间
     is_rsshub = "rsshub.app" in url or "rss-bridge.org" in url
     
-    for attempt in range(3):  # 最多重试3次
+    for attempt in range(5):  # 增加到5次重试
         try:
             if is_rsshub:
                 # RSSHub 连接建立慢，但读取快
                 # timeout=(连接超时, 读取超时)
-                response = requests.get(url, timeout=(10, 60), headers={
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                response = requests.get(url, timeout=(15, 90), headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Accept': 'application/rss+xml, application/xml, text/xml, */*'
                 })
+                
+                # 处理 429 (Too Many Requests) 错误
+                if response.status_code == 429:
+                    # RSSHub 限流，等待更长时间
+                    wait_time = 5 + (attempt * 2)  # 递增等待：5, 7, 9, 11, 13 秒
+                    if attempt < 4:
+                        print(f"⚠️ RSSHub 限流 (429)，等待 {wait_time} 秒后重试...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        # 最后一次尝试也失败，返回空
+                        print(f"❌ RSSHub 持续限流，无法获取数据")
+                        continue
+                
                 if response.status_code == 200:
+                    # 检查内容是否有效（至少要有一定长度）
+                    if len(response.content) < 500:  # 太短可能是错误页面
+                        if attempt < 4:
+                            time.sleep(3)  # 等待更长时间
+                            continue
+                        else:
+                            # 最后一次，即使内容短也尝试解析
+                            pass
+                    
                     d = feedparser.parse(BytesIO(response.content))
-                    if d and d.entries:
-                        return d
+                    
+                    # 检查是否有条目，或者是否是有效的 feed
+                    if d and (d.entries or (hasattr(d.feed, 'title') and len(d.feed.title) > 0)):
+                        # 如果有条目，直接返回
+                        if d.entries:
+                            return d
+                        # 如果没有条目但 feed 有效，可能是空的但结构正确，再试一次
+                        elif attempt < 4:
+                            time.sleep(3)
+                            continue
+                        else:
+                            # 最后一次，返回空 feed
+                            return d
+                    else:
+                        # Feed 解析失败或无效
+                        if attempt < 4:
+                            time.sleep(3)
+                            continue
+                else:
+                    # 其他非 200 状态码
+                    if attempt < 4:
+                        wait_time = 3 + attempt  # 递增等待
+                        print(f"⚠️ RSSHub 返回 {response.status_code}，等待 {wait_time} 秒后重试...")
+                        time.sleep(wait_time)
+                        continue
             else:
                 # 普通源使用 feedparser
                 d = feedparser.parse(url)
                 if d and d.entries:
                     return d
+                elif attempt < 4:
+                    time.sleep(1)
+                    continue
+        except requests.exceptions.Timeout as e:
+            if attempt < 4:
+                print(f"⚠️ RSSHub 超时 (尝试 {attempt + 1}/5), 等待后重试...")
+                time.sleep(5)  # RSSHub 超时后等待更长时间
+                continue
+            else:
+                print(f"❌ RSSHub 最终超时: {e}")
         except Exception as e:
-            if attempt < 2:  # 不是最后一次尝试
-                print(f"⚠️ 尝试 {attempt + 1} 失败: {e}, 重试...")
-                time.sleep(2 if is_rsshub else 0.6)  # RSSHub 重试间隔更长
+            if attempt < 4:
+                print(f"⚠️ 尝试 {attempt + 1}/5 失败: {type(e).__name__}, 重试...")
+                time.sleep(3 if is_rsshub else 1)
+                continue
             else:
                 print(f"❌ 最终失败: {e}")
     
     # 最后一次尝试
     try:
         if is_rsshub:
-            response = requests.get(url, timeout=(10, 60), headers={
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            response = requests.get(url, timeout=(15, 90), headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Accept': 'application/rss+xml, application/xml, text/xml, */*'
             })
-            if response.status_code == 200:
+            if response.status_code == 200 and len(response.content) >= 500:
                 return feedparser.parse(BytesIO(response.content))
         return feedparser.parse(url)
     except:
-        return feedparser.FeedParserDict({})
+        pass
+    
+    # 所有尝试都失败，返回空 feed
+    return feedparser.FeedParserDict({})
 
 def _entry_to_row(e, source_label: str, raw_source_url: str):
     url = e.get("link") or ""
