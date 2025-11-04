@@ -30,6 +30,14 @@ rss_feeds:
   - https://www.prcleader.org/blog-feed.xml
   warontherocks.com:
   - https://warontherocks.com/tag/china/feed/
+  nbcnews.com:
+  - https://feeds.nbcnews.com/nbcnews/public/world
+  cbsnews.com:
+  - https://www.cbsnews.com/latest/rss/world/
+  axios.com: []
+  restofworld.org:
+  - https://restofworld.org/tag/china/feed/
+  piie.com: []
 
 
   

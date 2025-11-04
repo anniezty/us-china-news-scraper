@@ -102,6 +102,8 @@ def normalize_source_short(raw_source: str) -> str:
         "wired.com": "Wired",
         "prcleader.org": "CLM",
         "wsj.com": "WSJ",
+        "restofworld.org": "ROW",
+        "piie.com": "PIIE",
     }
     if dom in domain_map:
         return domain_map[dom]
