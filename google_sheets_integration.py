@@ -122,15 +122,16 @@ def export_to_sheets(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = No
     print(f"✅ 已导出 {len(df)} 行数据到 Google Sheets: {sheet_name}")
 
 def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = None, 
-                            credentials_path: str = "google_credentials.json"):
+                            credentials_path: str = "google_credentials.json", sort_by_date: bool = True):
     """
-    追加 DataFrame 到 Google Sheets（不去重，追加到现有数据后面）
+    追加 DataFrame 到 Google Sheets（去重后追加，并按日期排序）
     
     Args:
         df: 要追加的 DataFrame
         spreadsheet_id: Google Sheets 的 ID
         sheet_name: Sheet 名称
         credentials_path: Google 凭证文件路径
+        sort_by_date: 是否按日期排序（从早到晚）
     """
     client = get_sheets_client(credentials_path)
     spreadsheet = client.open_by_key(spreadsheet_id)
@@ -148,24 +149,92 @@ def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: s
                     existing_urls = set(existing_df['URL'].dropna())
                     df = df[~df['URL'].isin(existing_urls)]
                     if df.empty:
-                        print(f"⚠️ 所有数据已存在，跳过追加")
+                        print(f"⚠️ 所有数据已存在，重新排序现有数据...")
+                        # 即使没有新数据，也重新排序现有数据
+                        if sort_by_date and 'Date' in existing_df.columns:
+                            _sort_sheet_by_date(worksheet, existing_df, existing_data[0])
+                            print(f"✅ 已按日期排序完成")
                         return
+                
+                # 合并现有数据和新数据
+                combined_df = pd.concat([existing_df, df], ignore_index=True)
+            else:
+                # sheet 存在但只有标题行，直接使用新数据
+                combined_df = df.copy()
         except gspread.exceptions.WorksheetNotFound:
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=10)
-            # 新 sheet，先写入标题
-            worksheet.append_row(df.columns.tolist())
+            # 新 sheet，直接使用新数据
+            combined_df = df.copy()
+            existing_data = []  # 新 sheet，没有现有数据
     else:
         worksheet = spreadsheet.sheet1
+        existing_data = worksheet.get_all_values()
+        if len(existing_data) > 1:
+            existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
+            if 'URL' in existing_df.columns and 'URL' in df.columns:
+                existing_urls = set(existing_df['URL'].dropna())
+                df = df[~df['URL'].isin(existing_urls)]
+                if df.empty:
+                    print(f"⚠️ 所有数据已存在，跳过追加")
+                    if sort_by_date and 'Date' in existing_df.columns:
+                        _sort_sheet_by_date(worksheet, existing_df, existing_data[0])
+                    return
+            combined_df = pd.concat([existing_df, df], ignore_index=True)
+        else:
+            combined_df = df.copy()
     
-    # 追加数据（分批写入）
-    if not df.empty:
+    # 按日期排序（从早到晚）
+    if sort_by_date and 'Date' in combined_df.columns:
+        try:
+            # 尝试解析日期
+            combined_df['Date_parsed'] = pd.to_datetime(combined_df['Date'], errors='coerce')
+            # 先按日期排序，然后删除临时列
+            combined_df = combined_df.sort_values('Date_parsed', ascending=True, na_position='last')
+            combined_df = combined_df.drop('Date_parsed', axis=1)
+        except Exception as e:
+            print(f"⚠️ 日期排序失败: {e}，使用原始顺序")
+    
+    # 清空 sheet 并重新写入（保留标题行）
+    worksheet.clear()
+    if len(existing_data) > 0:
+        worksheet.append_row(existing_data[0])  # 写入标题行
+    else:
+        worksheet.append_row(combined_df.columns.tolist())
+    
+    # 写入数据（分批写入）
+    if not combined_df.empty:
+        batch_size = 100
+        for i in range(0, len(combined_df), batch_size):
+            batch = combined_df.iloc[i:i+batch_size]
+            values = batch.values.tolist()
+            worksheet.append_rows(values)
+        
+        new_count = len(df)
+        total_count = len(combined_df)
+        print(f"✅ 已追加 {new_count} 行新数据，总计 {total_count} 行（已按日期排序）到 Google Sheets: {sheet_name}")
+
+def _sort_sheet_by_date(worksheet, df: pd.DataFrame, headers: list):
+    """
+    对 sheet 按日期排序（辅助函数）
+    """
+    try:
+        # 按日期排序
+        if 'Date' in df.columns:
+            df['Date_parsed'] = pd.to_datetime(df['Date'], errors='coerce')
+            df = df.sort_values('Date_parsed', ascending=True, na_position='last')
+            df = df.drop('Date_parsed', axis=1)
+        
+        # 清空并重新写入
+        worksheet.clear()
+        worksheet.append_row(headers)
+        
         batch_size = 100
         for i in range(0, len(df), batch_size):
             batch = df.iloc[i:i+batch_size]
             values = batch.values.tolist()
             worksheet.append_rows(values)
-        
-        print(f"✅ 已追加 {len(df)} 行数据到 Google Sheets: {sheet_name}")
+    except Exception as e:
+        print(f"⚠️ 排序失败: {e}")
 
 def create_weekly_sheet(df: pd.DataFrame, spreadsheet_id: str, 
                         credentials_path: str = "google_credentials.json"):
