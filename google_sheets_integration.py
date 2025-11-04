@@ -9,6 +9,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import yaml
 import os
+import json
 
 # Google Sheets API 权限范围
 SCOPES = [
@@ -17,16 +18,67 @@ SCOPES = [
 ]
 
 def get_sheets_client(credentials_path: str = "google_credentials.json"):
-    """获取 Google Sheets 客户端"""
-    if not os.path.exists(credentials_path):
-        raise FileNotFoundError(
-            f"Google 凭证文件不存在: {credentials_path}\n"
-            "请按照 README 中的说明创建 Google Service Account 并下载凭证文件"
-        )
+    """
+    获取 Google Sheets 客户端
     
-    creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client
+    支持多种凭证来源（按优先级）：
+    1. Streamlit Secrets（如果在 Streamlit 环境中）
+    2. 环境变量 GOOGLE_CREDENTIALS_JSON（JSON 字符串）
+    3. 本地文件 google_credentials.json
+    """
+    creds = None
+    
+    # 方式 1: 尝试从 Streamlit Secrets 读取（仅在 Streamlit 环境中）
+    try:
+        import streamlit as st
+        # 在 Streamlit 环境中，直接检查 secrets
+        if hasattr(st, 'secrets'):
+            try:
+                if 'google_sheets' in st.secrets:
+                    creds_dict = st.secrets['google_sheets'].get('credentials')
+                    if creds_dict:
+                        # 如果是字符串，尝试解析 JSON
+                        if isinstance(creds_dict, str):
+                            creds_dict = json.loads(creds_dict)
+                        elif isinstance(creds_dict, dict):
+                            # 已经是字典，直接使用
+                            pass
+                        else:
+                            creds_dict = None
+                        
+                        if creds_dict:
+                            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+                            return gspread.authorize(creds)
+            except (KeyError, AttributeError, json.JSONDecodeError) as e:
+                # Secrets 配置有问题，继续尝试其他方式
+                pass
+    except (ImportError, FileNotFoundError):
+        # 不在 Streamlit 环境或 secrets 文件不存在，继续尝试其他方式
+        pass
+    
+    # 方式 2: 尝试从环境变量读取（JSON 字符串）
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        try:
+            creds_dict = json.loads(creds_json)
+            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            return gspread.authorize(creds)
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            print(f"⚠️ 环境变量 GOOGLE_CREDENTIALS_JSON 格式错误: {e}")
+    
+    # 方式 3: 从本地文件读取
+    if os.path.exists(credentials_path):
+        creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
+        return gspread.authorize(creds)
+    
+    # 如果所有方式都失败
+    raise FileNotFoundError(
+        f"Google 凭证未找到\n"
+        "请选择以下方式之一：\n"
+        "1. 在 Streamlit Secrets 中配置 google_sheets.credentials\n"
+        "2. 设置环境变量 GOOGLE_CREDENTIALS_JSON\n"
+        "3. 创建文件 google_credentials.json"
+    )
 
 def export_to_sheets(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = None, 
                      credentials_path: str = "google_credentials.json"):
