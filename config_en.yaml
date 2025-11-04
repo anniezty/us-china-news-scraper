@@ -57,7 +57,7 @@ api_fallback:
   api_key: ''
 harvest_policy:
   prefer_rss: true
-  fallback_google: true
+  fallback_google: false
   fallback_api: false
   min_per_source: 0
   max_per_source: 50
