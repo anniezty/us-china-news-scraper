@@ -12,7 +12,7 @@ import os
 import json
 
 # 优先来源（每天定时收集到 Google Sheets）
-PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "reuters.com", "ft.com"]
+PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "reuters.com", "ft.com", "apnews.com"]
 
 # Google Sheets 配置（从环境变量或配置文件读取）
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_ID", "")
