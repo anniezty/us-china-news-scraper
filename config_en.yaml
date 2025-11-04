@@ -28,15 +28,8 @@ rss_feeds:
   - https://foreignpolicy.com/tag/china/feed/
   prcleader.org:
   - https://www.prcleader.org/blog-feed.xml
-  bloomberg.com: []
-  rss.cnn.com:
-  - http://rss.cnn.com/rss/edition_asia.rss
-  asia.nikkei.com:
-  - https://asia.nikkei.com/rss
   warontherocks.com:
   - https://warontherocks.com/tag/china/feed/
-  wsj.com:
-  - https://feeds.a.dj.com/rss/RSSAsiaNews.xml
 
 
   
