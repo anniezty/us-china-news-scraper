@@ -190,15 +190,54 @@ if run:
             df = df.copy()
             df["Category"] = df.apply(assign_category, axis=1)
 
-            # Per-category counts
-            st.markdown("### Summary")
-            st.write(f"- Total: **{len(df)}**")
+            # Per-category counts - 使用两列布局更直观
+            st.markdown("### 📊 Summary")
+            
+            # 计算总数
+            total = len(df)
+            unc = df[df["Category"] == "Uncategorized"]
+            unc_count = len(unc) if not unc.empty else 0
+            categorized_count = total - unc_count
+            
+            # 使用两列布局
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("📰 Total Articles", total)
+                st.metric("✅ Categorized", categorized_count)
+            
+            with col2:
+                st.metric("📂 Categories", len(compiled))
+                st.metric("❓ Uncategorized", unc_count)
+            
+            # 按类别显示统计（使用两列）
+            st.markdown("---")
+            st.markdown("#### 📋 By Category")
+            
+            # 按数量排序
+            category_counts = []
             for cat, _ in compiled:
                 sub = df[df["Category"] == cat]
-                st.write(f"- {cat}: **{len(sub)}**")
-            unc = df[df["Category"] == "Uncategorized"]
-            if not unc.empty:
-                st.write(f"- Uncategorized: **{len(unc)}**")
+                category_counts.append((cat, len(sub)))
+            category_counts.sort(key=lambda x: x[1], reverse=True)
+            
+            # 两列显示
+            cols = st.columns(2)
+            for idx, (cat, count) in enumerate(category_counts):
+                col_idx = idx % 2
+                with cols[col_idx]:
+                    # 计算百分比
+                    percentage = (count / total * 100) if total > 0 else 0
+                    # 使用进度条更直观
+                    st.markdown(f"**{cat}**")
+                    st.progress(min(count / total, 1.0) if total > 0 else 0)
+                    st.caption(f"{count} articles ({percentage:.1f}%)")
+            
+            # Uncategorized 单独显示
+            if unc_count > 0:
+                st.markdown("---")
+                st.markdown(f"**Uncategorized**: {unc_count} articles ({(unc_count/total*100):.1f}%)")
+                st.progress(min(unc_count / total, 1.0) if total > 0 else 0)
             
             # 热点榜功能
             st.markdown("---")
