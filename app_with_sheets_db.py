@@ -72,9 +72,34 @@ if run:
                     # 实际可以优化为只读取相关 sheet
                     priority_sources = ["nytimes.com", "scmp.com", "reuters.com"]
                     
-                    # 读取第一个 sheet（假设是最新的）
+                    # 尝试读取所有以 "Week" 开头的 sheet，合并数据
                     try:
-                        sheets_df = read_from_sheets(spreadsheet_id, None)
+                        # 读取所有 Week sheet 的数据
+                        import gspread
+                        from google.oauth2.service_account import Credentials
+                        from google_sheets_integration import get_sheets_client
+                        
+                        client = get_sheets_client(credentials_path=None)
+                        spreadsheet = client.open_by_key(spreadsheet_id)
+                        
+                        all_sheets_data = []
+                        for sheet in spreadsheet.worksheets():
+                            # 只读取以 "Week" 开头的 sheet
+                            if sheet.title.startswith("Week"):
+                                try:
+                                    data = sheet.get_all_values()
+                                    if len(data) > 1:  # 有数据（标题+数据）
+                                        df_part = pd.DataFrame(data[1:], columns=data[0])
+                                        all_sheets_data.append(df_part)
+                                except Exception as e:
+                                    st.warning(f"⚠️ 读取 Sheet '{sheet.title}' 时出错: {e}")
+                        
+                        # 合并所有 sheet 的数据
+                        if all_sheets_data:
+                            sheets_df = pd.concat(all_sheets_data, ignore_index=True)
+                        else:
+                            sheets_df = pd.DataFrame()
+                        
                         if not sheets_df.empty and 'Date' in sheets_df.columns:
                             # 过滤日期范围
                             sheets_df['Date'] = pd.to_datetime(sheets_df['Date'], errors='coerce')

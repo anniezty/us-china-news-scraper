@@ -51,3 +51,8 @@ exports/
 .env
 .env.local
 
+streamlit_secrets_for_cloud.toml
+streamlit_secrets_content.txt
+*Secrets*.txt
+*配置内容.txt
+🔧_快速修复指南.md
