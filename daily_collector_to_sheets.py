@@ -56,11 +56,11 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     
     # 上传到 Google Sheets
     try:
-        # 计算本周的开始日期（周一）
+        # 计算本周的开始日期（周一到下周一，共8天）
         from datetime import timedelta
         days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
-        week_start = today - timedelta(days=days_since_monday)
-        week_end = week_start + timedelta(days=6)  # 周日
+        week_start = today - timedelta(days=days_since_monday)  # 本周一
+        week_end = week_start + timedelta(days=7)  # 下周一（包含）
         
         # 使用本周日期范围作为 sheet 名称
         sheet_name = f"Week {week_start.isoformat()} to {week_end.isoformat()}"
