@@ -1,4 +1,5 @@
 import feedparser, yaml, re, requests, time
+from io import BytesIO
 from urllib.parse import quote_plus
 from datetime import datetime, timezone
 from dateutil import parser as dtparser
@@ -25,12 +26,48 @@ def _in_range(dt: datetime | None, start: datetime, end: datetime) -> bool:
     return (dt >= start) and (dt <= end)
 
 def _fetch_feed(url: str) -> feedparser.FeedParserDict:
-    # 简单重试
-    for _ in range(2):
-        d = feedparser.parse(url)
-        if d and d.entries: return d
-        time.sleep(0.6)
-    return feedparser.parse(url)
+    # 重试逻辑，对 RSSHub 等慢速源增加超时
+    import requests
+    from io import BytesIO
+    
+    # RSSHub 等源可能需要更长时间
+    is_rsshub = "rsshub.app" in url or "rss-bridge.org" in url
+    
+    for attempt in range(3):  # 最多重试3次
+        try:
+            if is_rsshub:
+                # RSSHub 连接建立慢，但读取快
+                # timeout=(连接超时, 读取超时)
+                response = requests.get(url, timeout=(10, 60), headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                })
+                if response.status_code == 200:
+                    d = feedparser.parse(BytesIO(response.content))
+                    if d and d.entries:
+                        return d
+            else:
+                # 普通源使用 feedparser
+                d = feedparser.parse(url)
+                if d and d.entries:
+                    return d
+        except Exception as e:
+            if attempt < 2:  # 不是最后一次尝试
+                print(f"⚠️ 尝试 {attempt + 1} 失败: {e}, 重试...")
+                time.sleep(2 if is_rsshub else 0.6)  # RSSHub 重试间隔更长
+            else:
+                print(f"❌ 最终失败: {e}")
+    
+    # 最后一次尝试
+    try:
+        if is_rsshub:
+            response = requests.get(url, timeout=(10, 60), headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            })
+            if response.status_code == 200:
+                return feedparser.parse(BytesIO(response.content))
+        return feedparser.parse(url)
+    except:
+        return feedparser.FeedParserDict({})
 
 def _entry_to_row(e, source_label: str, raw_source_url: str):
     url = e.get("link") or ""

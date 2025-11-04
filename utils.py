@@ -62,7 +62,9 @@ def normalize_source_short(raw_source: str) -> str:
         "https://feeds.nbcnews.com/": "NBC",
         "https://www.cbsnews.com/": "CBS",
         "https://www.chinafile.com/": "ChinaFile",
-        # RSSHub proxies (仅当使用时启用)
+        # RSSHub proxies
+        "https://rsshub.app/wired/": "Wired",
+        "https://rsshub.app/apnews/": "AP",
     }
     for k, v in mapping_starts.items():
         if raw_source.startswith(k):

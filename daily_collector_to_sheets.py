@@ -2,12 +2,14 @@
 """
 每日定时任务：抓取数据并上传到 Google Sheets
 替代原来的 SQLite 数据库方案
+支持本地 cron 和 GitHub Actions
 """
 from datetime import datetime, date
 from collector import collect
 from google_sheets_integration import export_to_sheets, export_to_sheets_append, get_sheets_client
 import yaml
 import os
+import json
 
 # 优先来源（每天定时收集到 Google Sheets）
 PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "reuters.com", "ft.com"]
@@ -15,6 +17,22 @@ PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "reuters.com", "ft.com"]
 # Google Sheets 配置（从环境变量或配置文件读取）
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_ID", "")
 CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "google_credentials.json")
+
+# GitHub Actions 支持：从环境变量读取 JSON 字符串
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+
+def get_credentials_path():
+    """获取凭证路径，支持 GitHub Actions"""
+    # 如果 GitHub Actions 提供了 JSON 字符串，创建临时文件
+    if GOOGLE_CREDENTIALS_JSON:
+        import tempfile
+        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        json.dump(creds_dict, temp_file)
+        temp_file.close()
+        return temp_file.name
+    # 否则使用本地文件
+    return CREDENTIALS_PATH if os.path.exists(CREDENTIALS_PATH) else None
 
 def collect_and_upload_to_sheets(config_path: str = "config_en.yaml", 
                                  spreadsheet_id: str = None,
@@ -25,13 +43,23 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     if not spreadsheet_id:
         spreadsheet_id = SPREADSHEET_ID
     
-    if not credentials_path:
-        credentials_path = CREDENTIALS_PATH
-    
     if not spreadsheet_id:
         print("❌ 错误: 未设置 Google Sheets ID")
         print("请设置环境变量 GOOGLE_SHEETS_ID 或在代码中指定")
         return (0, 0)
+    
+    # 获取凭证路径
+    if not credentials_path:
+        credentials_path = get_credentials_path()
+    
+    if not credentials_path or not os.path.exists(credentials_path):
+        # 尝试使用环境变量
+        if GOOGLE_CREDENTIALS_JSON:
+            credentials_path = get_credentials_path()
+        else:
+            print("❌ 错误: 未找到 Google 凭证文件")
+            print("请设置 GOOGLE_CREDENTIALS_PATH 或 GOOGLE_CREDENTIALS_JSON")
+            return (0, 0)
     
     today = date.today()
     today_str = today.isoformat()
@@ -80,6 +108,13 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
         import traceback
         traceback.print_exc()
         return (0, len(df))
+    finally:
+        # 清理临时文件（如果是 GitHub Actions 创建的）
+        if GOOGLE_CREDENTIALS_JSON and credentials_path and credentials_path.startswith('/tmp'):
+            try:
+                os.unlink(credentials_path)
+            except:
+                pass
 
 def create_weekly_sheet_from_range(spreadsheet_id: str, date_from: str, date_to: str,
                                    config_path: str = "config_en.yaml",
@@ -88,7 +123,7 @@ def create_weekly_sheet_from_range(spreadsheet_id: str, date_from: str, date_to:
     为指定日期范围创建或更新 sheet
     """
     if not credentials_path:
-        credentials_path = CREDENTIALS_PATH
+        credentials_path = get_credentials_path()
     
     print(f"📅 处理日期范围: {date_from} 到 {date_to}")
     
@@ -137,4 +172,3 @@ if __name__ == "__main__":
         # 每日模式
         new, total = collect_and_upload_to_sheets()
         print(f"\n完成: {new} 篇新文章，{total} 篇总计")
-

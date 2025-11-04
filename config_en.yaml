@@ -32,6 +32,8 @@ rss_feeds:
   - https://warontherocks.com/tag/china/feed/
   restofworld.org:
   - https://restofworld.org/tag/china/feed/
+  wired.com:
+  - https://rsshub.app/wired/tag/china
 
 
   
