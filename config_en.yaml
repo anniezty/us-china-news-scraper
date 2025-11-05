@@ -36,6 +36,8 @@ rss_feeds:
   - https://rsshub.app/wired/tag/china
   apnews.com:
   - https://rsshub.app/apnews/topics/china
+  bloomberg.com:
+  - https://www.bloomberg.com/lineup-next/api/page/next-china/module/story_package_2,story_package_4,story_package_5,hub_ad_4,story_package_6,story_package_7,hub_video,hub_story_list_2,hub_story_list_3?moduleVariations=3_up_images,3_up_images,3_up_images,default,3_up_images,3_up_images,default,simple,simple&moduleTypes=story_package,story_package,story_package,ad,story_package,story_package,video,story_list,story_list&locale=en&publishedState=PUBLISHED
 
 
   
