@@ -94,6 +94,7 @@ def normalize_source_short(raw_source: str) -> str:
         "washingtonpost.com": "WaPo",
         "politico.com": "Politico",
         "nikkei.com": "Nikkei",
+        "asia.nikkei.com": "Nikkei",
         "apnews.com": "AP",
         "axios.com": "Axios",
         "warontherocks.com": "WOTR",

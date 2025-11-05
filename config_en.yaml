@@ -36,6 +36,8 @@ rss_feeds:
   - https://rsshub.app/wired/tag/china
   apnews.com:
   - https://rsshub.app/apnews/topics/china
+  asia.nikkei.com:
+  - https://asia.nikkei.com/location/east-asia/china
 
 
   

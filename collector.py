@@ -202,6 +202,37 @@ def collect(config_path: str,
     # 读取 RSS
     rows = []
     for idx, (dom, feed_url) in enumerate(feed_jobs):
+        # 特殊处理：Nikkei Asia HTML 页面
+        if dom == "asia.nikkei.com" or dom == "nikkei.com":
+            try:
+                from nikkei_collector import fetch_nikkei_articles
+                nikkei_articles = fetch_nikkei_articles(date_from=start, date_to=end, max_pages=3)
+                for article in nikkei_articles:
+                    # 转换为标准格式
+                    published = None
+                    if article.get("published"):
+                        try:
+                            published = _parse_dt(article["published"])
+                        except:
+                            pass
+                    
+                    row = {
+                        "id": url_id(article["url"]),
+                        "source": dom,
+                        "title": article["title"],
+                        "summary": article.get("summary", ""),
+                        "url": article["url"],
+                        "published_dt": published,
+                        "fetched_dt": datetime.now(timezone.utc),
+                        "raw_source": feed_url
+                    }
+                    rows.append(row)
+            except ImportError:
+                print(f"⚠️ Nikkei 收集器未找到，跳过")
+            except Exception as e:
+                print(f"⚠️ Nikkei 收集失败: {e}")
+            continue
+        
         # 对 RSSHub 源添加延迟，避免同时发送多个请求触发限流
         is_rsshub = "rsshub.app" in feed_url or "rss-bridge.org" in feed_url
         if is_rsshub and idx > 0:

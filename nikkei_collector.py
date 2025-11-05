@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""
+Nikkei Asia 收集器
+从 Nikkei Asia 中国新闻页面提取文章
+"""
+import requests
+from bs4 import BeautifulSoup
+import json
+import re
+from datetime import datetime, timezone
+from dateutil import parser as dtparser
+from urllib.parse import urljoin
+import time
+
+NIKKEI_BASE_URL = "https://asia.nikkei.com"
+NIKKEI_CHINA_URL = "https://asia.nikkei.com/location/east-asia/china"
+
+NIKKEI_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+}
+
+def extract_articles_from_html(html_content):
+    """
+    从 HTML 页面提取文章
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    articles = []
+    
+    # 方法1: 查找 __NEXT_DATA__ JSON
+    scripts = soup.find_all('script')
+    for script in scripts:
+        if script.string and '__NEXT_DATA__' in script.string:
+            try:
+                # 提取 JSON 数据
+                json_match = re.search(r'__NEXT_DATA__\s*=\s*({.+?})', script.string, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group(1))
+                    # 递归查找文章数据
+                    articles.extend(_extract_from_json(data))
+            except Exception as e:
+                print(f"⚠️ JSON 解析失败: {e}")
+    
+    # 方法2: 直接查找文章链接（改进版）
+    # 查找所有可能的文章链接
+    for link in soup.find_all('a', href=True):
+        href = link.get('href', '')
+        text = link.get_text(strip=True)
+        
+        # 匹配文章 URL 模式（更宽泛）
+        if re.match(r'/(Politics|Business|Economy|Companies|Markets|Tech|Opinion|Defense|International-relations|Trade-war|Supply-Chain|Automobiles|Semiconductors|Electric-vehicles|Artificial-intelligence|spotlight|Politics|Companies|Equities|Materials|Transportation|China-up-close|Policy-Asia)', href):
+            if len(text) > 20:
+                full_url = urljoin(NIKKEI_BASE_URL, href) if not href.startswith('http') else href
+                
+                # 去重
+                if not any(a['url'] == full_url for a in articles):
+                    # 尝试从父元素获取更多信息
+                    parent = link.parent
+                    summary = ''
+                    if parent:
+                        # 查找摘要
+                        summary_elem = parent.find(['p', 'div'], class_=re.compile(r'summary|excerpt|description', re.I))
+                        if summary_elem:
+                            summary = summary_elem.get_text(strip=True)
+                    
+                    articles.append({
+                        'url': full_url,
+                        'title': text,
+                        'summary': summary[:200] if summary else '',
+                        'published': None,
+                    })
+    
+    # 方法3: 查找特定的文章容器
+    if not articles:
+        # 尝试查找文章卡片
+        article_containers = soup.find_all(['article', 'div'], class_=re.compile(r'article|story|card', re.I))
+        for container in article_containers:
+            link = container.find('a', href=True)
+            if link:
+                href = link.get('href', '')
+                title = link.get_text(strip=True)
+                if len(title) > 20:
+                    full_url = urljoin(NIKKEI_BASE_URL, href)
+                    if not any(a['url'] == full_url for a in articles):
+                        articles.append({
+                            'url': full_url,
+                            'title': title,
+                            'summary': '',
+                            'published': None,
+                        })
+    
+    return articles
+
+def _extract_from_json(data, articles=None):
+    """
+    递归从 JSON 数据中提取文章
+    """
+    if articles is None:
+        articles = []
+    
+    if isinstance(data, dict):
+        # 检查是否是文章对象
+        if 'url' in data or 'href' in data or 'slug' in data:
+            title = data.get('title') or data.get('headline') or data.get('name')
+            url = data.get('url') or data.get('href') or data.get('slug')
+            if title and url:
+                if not url.startswith('http'):
+                    url = urljoin(NIKKEI_BASE_URL, url)
+                
+                articles.append({
+                    'url': url,
+                    'title': title,
+                    'summary': data.get('summary') or data.get('description') or data.get('dek') or '',
+                    'published': data.get('publishedAt') or data.get('published') or data.get('date'),
+                })
+        
+        # 递归查找
+        for value in data.values():
+            if isinstance(value, (dict, list)):
+                _extract_from_json(value, articles)
+    
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                _extract_from_json(item, articles)
+    
+    return articles
+
+def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries=3):
+    """
+    从 Nikkei Asia 获取文章
+    
+    Args:
+        date_from: 开始日期（可选）
+        date_to: 结束日期（可选）
+        max_pages: 最大页数
+        max_retries: 最大重试次数
+    
+    Returns:
+        list: 文章列表
+    """
+    all_articles = []
+    
+    for page in range(1, max_pages + 1):
+        url = f"{NIKKEI_CHINA_URL}?page={page}"
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=NIKKEI_HEADERS, timeout=15)
+                
+                if response.status_code == 200:
+                    articles = extract_articles_from_html(response.content)
+                    
+                    # 过滤日期范围
+                    if date_from or date_to:
+                        filtered = []
+                        for article in articles:
+                            pub_str = article.get('published')
+                            if pub_str:
+                                try:
+                                    pub_dt = dtparser.parse(pub_str)
+                                    if pub_dt.tzinfo is None:
+                                        pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                                    else:
+                                        pub_dt = pub_dt.astimezone(timezone.utc)
+                                    
+                                    if date_from and pub_dt < date_from:
+                                        continue
+                                    if date_to and pub_dt > date_to:
+                                        continue
+                                    article['published'] = pub_str  # 保留原始字符串
+                                except:
+                                    pass
+                            filtered.append(article)
+                        articles = filtered
+                    
+                    all_articles.extend(articles)
+                    print(f"  页面 {page}: 获取 {len(articles)} 篇文章")
+                    break  # 成功，跳出重试循环
+                    
+                elif response.status_code == 403:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Nikkei 403 Forbidden (页面 {page}, 尝试 {attempt + 1}/{max_retries})")
+                        time.sleep(2)
+                        continue
+                    else:
+                        print(f"❌ Nikkei 页面 {page} 持续返回 403")
+                        break
+                elif response.status_code == 429:
+                    wait_time = 5 + (attempt * 2)
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Nikkei 限流 (429)，等待 {wait_time} 秒...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Nikkei 页面 {page} 持续限流")
+                        break
+                else:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Nikkei 页面 {page} 返回 {response.status_code}")
+                        time.sleep(2)
+                        continue
+                    else:
+                        break
+                        
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    print(f"⚠️ Nikkei 页面 {page} 超时 (尝试 {attempt + 1}/{max_retries})")
+                    time.sleep(3)
+                    continue
+                else:
+                    print(f"❌ Nikkei 页面 {page} 超时")
+                    break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️ Nikkei 页面 {page} 错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(2)
+                    continue
+                else:
+                    print(f"❌ Nikkei 页面 {page} 错误: {e}")
+                    break
+        
+        # 页面之间延迟
+        if page < max_pages:
+            time.sleep(2)
+    
+    # 去重
+    seen_urls = set()
+    unique_articles = []
+    for article in all_articles:
+        if article['url'] not in seen_urls:
+            seen_urls.add(article['url'])
+            unique_articles.append(article)
+    
+    return unique_articles
+
