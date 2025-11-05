@@ -6,7 +6,7 @@ from utils import compile_or_regex
 from openpyxl.utils import get_column_letter
 import os
 
-# 尝试导入 Google Sheets 功能
+# Try to import Google Sheets features
 try:
     from google_sheets_integration import read_from_sheets, export_to_sheets
     from collector import collect as collect_rss
@@ -35,23 +35,23 @@ with col2:
     end_date = st.date_input("End date (<= today)", value=date.today(), min_value=date(2000,1,1), max_value=date.today())
 selected_sources = st.multiselect("Sources (whitelist)", options=all_sources, default=all_sources)
 
-# Google Sheets 配置
+# Google Sheets configuration
 use_sheets_db = False
 spreadsheet_id = None
 if HAS_SHEETS:
     st.markdown("---")
-    st.markdown("### 📊 数据来源")
-    use_sheets_db = st.checkbox("从 Google Sheets 读取历史数据（NYT, SCMP, Reuters）", value=True)
+    st.markdown("### 📊 Data sources")
+    use_sheets_db = st.checkbox("Read historical data from Google Sheets (NYT, SCMP, Reuters)", value=True)
     if use_sheets_db:
         spreadsheet_id = st.text_input(
             "Google Sheets ID", 
             value=os.getenv("GOOGLE_SHEETS_ID", ""),
-            placeholder="从 Google Sheets URL 中获取",
-            help="例如: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
+            placeholder="Paste the ID from your Google Sheets URL",
+            help="e.g. https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
         )
         
         if spreadsheet_id:
-            st.info("✅ 将从 Google Sheets 读取 NYT、SCMP、Reuters 的历史数据")
+            st.info("✅ Will read historical data for NYT, SCMP, Reuters from Google Sheets")
 
 run = st.button("Generate & Export", type="primary")
 
@@ -66,7 +66,7 @@ if run:
             sheets_df = pd.DataFrame()
             if use_sheets_db and spreadsheet_id and HAS_SHEETS:
                 try:
-                    st.info("📖 正在从 Google Sheets 读取历史数据...")
+                    st.info("📖 Reading historical data from Google Sheets...")
                     # 尝试读取多个可能的 sheet
                     # 简化：读取所有数据，然后过滤日期
                     # 实际可以优化为只读取相关 sheet
@@ -92,7 +92,7 @@ if run:
                                         df_part = pd.DataFrame(data[1:], columns=data[0])
                                         all_sheets_data.append(df_part)
                                 except Exception as e:
-                                    st.warning(f"⚠️ 读取 Sheet '{sheet.title}' 时出错: {e}")
+                                    st.warning(f"⚠️ Error reading sheet '{sheet.title}': {e}")
                         
                         # 合并所有 sheet 的数据
                         if all_sheets_data:
@@ -113,15 +113,15 @@ if run:
                             # 确保列名一致
                             if 'Nested?' not in sheets_df.columns:
                                 sheets_df['Nested?'] = ''
-                            st.success(f"✅ 从 Google Sheets 读取了 {len(sheets_df)} 条历史数据")
+                            st.success(f"✅ Loaded {len(sheets_df)} historical rows from Google Sheets")
                     except Exception as e:
-                        st.warning(f"⚠️ 无法读取 Google Sheets: {e}")
+                        st.warning(f"⚠️ Unable to read Google Sheets: {e}")
                         sheets_df = pd.DataFrame()
                 except Exception as e:
-                    st.warning(f"⚠️ Google Sheets 读取失败: {e}")
+                    st.warning(f"⚠️ Failed to read Google Sheets: {e}")
             
             # 2. 从 RSS 实时抓取所有来源
-            st.info("🌐 正在从 RSS 实时抓取...")
+            st.info("🌐 Fetching from RSS in real time...")
             rss_df = collect_rss(
                 "config_en.yaml", 
                 start_date.isoformat(), 
@@ -144,16 +144,16 @@ if run:
                 df = pd.concat([sheets_df[required_cols], rss_df[required_cols]], ignore_index=True)
                 # 去重（按 URL）
                 df = df.drop_duplicates(subset=['URL'], keep='first')
-                st.success(f"✅ 合并完成: Google Sheets ({len(sheets_df)} 条) + RSS ({len(rss_df)} 条) = 总计 {len(df)} 条（去重后）")
+                st.success(f"✅ Merged: Google Sheets ({len(sheets_df)}) + RSS ({len(rss_df)}) = total {len(df)} (deduplicated)")
             elif not sheets_df.empty:
                 df = sheets_df
-                st.success(f"✅ 使用 Google Sheets 数据: {len(df)} 条")
+                st.success(f"✅ Using Google Sheets data: {len(df)} rows")
             elif not rss_df.empty:
                 df = rss_df
-                st.success(f"✅ 使用 RSS 数据: {len(rss_df)} 条")
+                st.success(f"✅ Using RSS data: {len(rss_df)} rows")
             else:
                 df = pd.DataFrame()
-                st.warning("未找到文章")
+                st.warning("No articles found")
 
         if not df.empty:
             # Assign single category per article (first matched)
@@ -190,7 +190,7 @@ if run:
             df = df.copy()
             df["Category"] = df.apply(assign_category, axis=1)
 
-            # Per-category counts - 使用两列布局更直观
+            # Per-category counts (two-column layout)
             st.markdown("### 📊 Summary")
             
             # 计算总数
@@ -207,7 +207,7 @@ if run:
             with col2:
                 st.metric("📂 Categories", len(compiled))
             
-            # 按类别显示统计（使用两列）
+            # By category (two columns)
             st.markdown("---")
             st.markdown("#### 📋 By Category")
             
@@ -223,9 +223,9 @@ if run:
             for idx, (cat, count) in enumerate(category_counts):
                 col_idx = idx % 2
                 with cols[col_idx]:
-                    # 计算百分比
+                    # Percentage
                     percentage = (count / total * 100) if total > 0 else 0
-                    # 使用进度条更直观
+                    # Progress bar visualization
                     st.markdown(f"**{cat}**")
                     st.progress(min(count / total, 1.0) if total > 0 else 0)
                     st.caption(f"{count} articles ({percentage:.1f}%)")
@@ -236,26 +236,26 @@ if run:
                 st.markdown(f"**Uncategorized**: {unc_count} articles ({(unc_count/total*100):.1f}%)")
                 st.progress(min(unc_count / total, 1.0) if total > 0 else 0)
             
-            # 热点榜功能
+            # Trending (Hot list)
             st.markdown("---")
-            st.markdown("## 🔥 热点榜")
-            st.markdown("显示被多家媒体报道的新闻（按类别分组）")
+            st.markdown("## 🔥 Trending News")
+            st.markdown("Top stories covered by multiple sources (grouped by category)")
             
             try:
                 from news_trending import group_similar_news, generate_trending_rank
                 
-                # 识别相似新闻并分组
-                with st.spinner("正在分析新闻热点..."):
+                # Identify similar news and group
+                with st.spinner("Analyzing trending stories..."):
                     df_with_groups = group_similar_news(df.copy(), similarity_threshold=0.6)
                     
-                    # 生成热点榜
+                    # Generate trending list
                     trending_df = generate_trending_rank(df_with_groups, top_n=3)
                     
                     if not trending_df.empty:
                         # 获取所有类别
                         categories = sorted(trending_df['Category'].unique())
                         
-                        # 使用 tabs 让用户选择类别
+                        # Use tabs for categories
                         if len(categories) > 1:
                             tabs = st.tabs(categories)
                             for idx, category in enumerate(categories):
@@ -264,45 +264,45 @@ if run:
                                     
                                     for _, row in category_trending.iterrows():
                                         with st.container():
-                                            st.markdown(f"### 🔥 {row['SourceCount']} 家媒体报道")
+                                            st.markdown(f"### 🔥 Reported by {row['SourceCount']} sources")
                                             st.markdown(f"**{row['Headline']}**")
-                                            st.markdown(f"**报道媒体**: {row['Outlets']}")
+                                            st.markdown(f"**Outlets**: {row['Outlets']}")
                                             if row.get('Date'):
-                                                st.markdown(f"**日期**: {row['Date']}")
+                                                st.markdown(f"**Date**: {row['Date']}")
                                             
-                                            # 显示所有链接
+                                            # Show related links
                                             if row.get('URLs') and len(row['URLs']) > 0:
-                                                st.markdown("**相关报道**:")
+                                                st.markdown("**Related coverage**:")
                                                 for url in row['URLs'][:5]:  # 最多显示5个链接
-                                                    st.markdown(f"- [查看原文]({url})")
+                                                    st.markdown(f"- [Read article]({url})")
                                             
                                             st.markdown("---")
                         else:
-                            # 只有一个类别，直接显示
+                            # Single category
                             category = categories[0]
                             category_trending = trending_df[trending_df['Category'] == category]
                             
                             for _, row in category_trending.iterrows():
                                 with st.container():
-                                    st.markdown(f"### 🔥 {row['SourceCount']} 家媒体报道")
+                                    st.markdown(f"### 🔥 Reported by {row['SourceCount']} sources")
                                     st.markdown(f"**{row['Headline']}**")
-                                    st.markdown(f"**报道媒体**: {row['Outlets']}")
+                                    st.markdown(f"**Outlets**: {row['Outlets']}")
                                     if row.get('Date'):
-                                        st.markdown(f"**日期**: {row['Date']}")
+                                        st.markdown(f"**Date**: {row['Date']}")
                                     
-                                    # 显示所有链接
+                                    # Show related links
                                     if row.get('URLs') and len(row['URLs']) > 0:
-                                        st.markdown("**相关报道**:")
+                                        st.markdown("**Related coverage**:")
                                         for url in row['URLs'][:5]:  # 最多显示5个链接
-                                            st.markdown(f"- [查看原文]({url})")
+                                            st.markdown(f"- [Read article]({url})")
                                     
                                     st.markdown("---")
                     else:
-                        st.info("暂无热点新闻（需要至少2家媒体报道同一新闻）")
+                        st.info("No trending news (need at least 2 sources covering the same story)")
             except ImportError as e:
-                st.warning(f"⚠️ 热点榜功能暂不可用: {e}")
+                st.warning(f"⚠️ Trending feature unavailable: {e}")
             except Exception as e:
-                st.warning(f"⚠️ 生成热点榜时出错: {e}")
+                st.warning(f"⚠️ Error generating trending list: {e}")
                 import traceback
                 st.code(traceback.format_exc())
  
