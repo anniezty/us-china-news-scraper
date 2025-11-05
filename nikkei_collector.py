@@ -117,8 +117,51 @@ def extract_articles_from_html(html_content):
         href = link.get('href', '')
         text = link.get_text(strip=True)
         
-        # 匹配文章 URL 模式（更宽泛）
-        if re.match(r'/(Politics|Business|Economy|Companies|Markets|Tech|Opinion|Defense|International-relations|Trade-war|Supply-Chain|Automobiles|Semiconductors|Electric-vehicles|Artificial-intelligence|spotlight|Politics|Companies|Equities|Materials|Transportation|China-up-close|Policy-Asia)', href):
+        # 匹配文章 URL 模式（更宽泛，包含更多可能的路径）
+        # 匹配常见的文章路径模式
+        article_patterns = [
+            r'/(Politics|Business|Economy|Companies|Markets|Tech|Opinion|Defense|International-relations|Trade-war|Supply-Chain|Automobiles|Semiconductors|Electric-vehicles|Artificial-intelligence|spotlight|Companies|Equities|Materials|Transportation|China-up-close|Policy-Asia)',
+            r'/Economy/',
+            r'/Politics/',
+            r'/Business/',
+            r'/Companies/',
+            r'/Markets/',
+            r'/Tech/',
+            r'/Opinion/',
+            r'/Defense/',
+            r'/World/',
+            r'/Asia/',
+        ]
+        
+        # 检查是否匹配任何模式
+        is_article_url = False
+        for pattern in article_patterns:
+            if re.match(pattern, href):
+                is_article_url = True
+                break
+        
+        # 也检查是否是完整的文章URL（包含文章ID或slug）
+        if not is_article_url and href.startswith('/') and len(href) > 10:
+            # 排除明显的非文章链接
+            non_article_patterns = [
+                r'/location/', r'/tag/', r'/author/', r'/search', r'/rss', r'/newsletter',
+                r'/editor-s-picks/?$',  # 编辑推荐页面（不是具体文章）
+                r'/editor-s-picks/[^/]+/?$',  # 编辑推荐的分类页面（不是具体文章）
+                r'/spotlight/[^/]+/?$',  # spotlight分类页面（没有具体文章）
+                r'/member/',  # 会员相关页面
+                r'/marketing/',  # 营销页面
+                r'/business/[^/]+/?$',  # 业务分类页面（如 /business/media-entertainment）
+            ]
+            if not any(re.search(pattern, href) for pattern in non_article_patterns):
+                # 检查是否是真正的文章（有具体的文章slug）
+                path_parts = [p for p in href.split('/') if p]
+                if len(path_parts) >= 2:  # 至少有两个路径段
+                    # 检查最后一个路径段是否像文章slug（通常比较长）
+                    last_part = path_parts[-1]
+                    if len(last_part) > 20 and ('-' in last_part or last_part.isalnum()):
+                        is_article_url = True
+        
+        if is_article_url:
             if len(text) > 20:
                 full_url = urljoin(NIKKEI_BASE_URL, href) if not href.startswith('http') else href
                 
@@ -261,12 +304,19 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
                 if response.status_code == 200:
                     articles = extract_articles_from_html(response.content)
                     
-                    # 如果没有日期，尝试从文章详情页获取（优化：只对必要文章获取）
+                    # 如果没有日期，尝试从文章详情页获取（优化：根据是否有日期过滤要求决定）
                     articles_needing_date = [a for a in articles if not a.get('published')]
                     if articles_needing_date:
-                        # 只对前10篇没有日期的文章获取日期，避免太慢
-                        max_date_extractions = min(10, len(articles_needing_date))
-                        print(f"  页面 {page}: 从详情页提取日期（{max_date_extractions} 篇）...")
+                        # 如果有日期过滤要求，需要获取所有文章的日期；否则只获取前10篇
+                        if date_from or date_to:
+                            # 有日期过滤要求，需要获取所有文章的日期
+                            max_date_extractions = len(articles_needing_date)
+                            print(f"  页面 {page}: 从详情页提取日期（{max_date_extractions} 篇，需要日期过滤）...")
+                        else:
+                            # 没有日期过滤要求，只获取前10篇
+                            max_date_extractions = min(10, len(articles_needing_date))
+                            print(f"  页面 {page}: 从详情页提取日期（{max_date_extractions} 篇）...")
+                        
                         for i, article in enumerate(articles_needing_date[:max_date_extractions]):
                             date = extract_date_from_article_page(article['url'])
                             if date:
