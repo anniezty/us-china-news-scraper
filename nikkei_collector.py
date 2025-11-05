@@ -21,6 +21,75 @@ NIKKEI_HEADERS = {
     'Accept-Language': 'en-US,en;q=0.9',
 }
 
+def extract_date_from_article_page(url):
+    """
+    从文章详情页提取发布日期（优化版，更快）
+    """
+    try:
+        response = requests.get(url, headers=NIKKEI_HEADERS, timeout=8)
+        if response.status_code == 200:
+            # 快速检查：先查找 HTML 中的日期
+            content = response.text
+            
+            # 方法1: 查找 time 标签的 datetime 属性（最快）
+            time_match = re.search(r'<time[^>]*datetime=["\']([^"\']+)["\']', content)
+            if time_match:
+                return time_match.group(1)
+            
+            # 方法2: 查找 JSON 数据中的日期（快速提取）
+            json_match = re.search(r'__NEXT_DATA__\s*=\s*({.+?})', content, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(1))
+                    date = _find_date_in_json(data)
+                    if date:
+                        return date
+                except:
+                    pass
+            
+            # 方法3: 查找包含 datetime 属性的元素
+            datetime_match = re.search(r'datetime=["\']([^"\']+)["\']', content)
+            if datetime_match:
+                return datetime_match.group(1)
+            
+            # 方法4: 查找日期格式的文本（如 "31 October 2025"）
+            date_patterns = [
+                r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',
+                r'(\d{4}-\d{2}-\d{2})',
+                r'(\d{2}/\d{2}/\d{4})',
+            ]
+            for pattern in date_patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    return match.group(1)
+    except Exception as e:
+        pass  # 静默失败，不影响主流程
+    
+    return None
+
+def _find_date_in_json(obj):
+    """
+    从 JSON 数据中递归查找日期字段
+    """
+    if isinstance(obj, dict):
+        # 检查常见的日期字段
+        for key in ['publishedAt', 'published', 'date', 'datePublished', 'pubDate', 'createdAt', 'created']:
+            if key in obj and obj[key]:
+                return obj[key]
+        # 递归查找
+        for value in obj.values():
+            if isinstance(value, (dict, list)):
+                result = _find_date_in_json(value)
+                if result:
+                    return result
+    elif isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, (dict, list)):
+                result = _find_date_in_json(item)
+                if result:
+                    return result
+    return None
+
 def extract_articles_from_html(html_content):
     """
     从 HTML 页面提取文章
@@ -37,7 +106,7 @@ def extract_articles_from_html(html_content):
                 json_match = re.search(r'__NEXT_DATA__\s*=\s*({.+?})', script.string, re.DOTALL)
                 if json_match:
                     data = json.loads(json_match.group(1))
-                    # 递归查找文章数据
+                    # 递归查找文章数据（包含日期）
                     articles.extend(_extract_from_json(data))
             except Exception as e:
                 print(f"⚠️ JSON 解析失败: {e}")
@@ -94,25 +163,33 @@ def extract_articles_from_html(html_content):
 
 def _extract_from_json(data, articles=None):
     """
-    递归从 JSON 数据中提取文章
+    递归从 JSON 数据中提取文章（改进版，更好地提取日期）
     """
     if articles is None:
         articles = []
     
     if isinstance(data, dict):
         # 检查是否是文章对象
-        if 'url' in data or 'href' in data or 'slug' in data:
+        if 'url' in data or 'href' in data or 'slug' in data or 'path' in data:
             title = data.get('title') or data.get('headline') or data.get('name')
-            url = data.get('url') or data.get('href') or data.get('slug')
+            url = data.get('url') or data.get('href') or data.get('slug') or data.get('path')
+            
             if title and url:
                 if not url.startswith('http'):
                     url = urljoin(NIKKEI_BASE_URL, url)
+                
+                # 更全面地查找日期字段
+                published = (data.get('publishedAt') or data.get('published') or 
+                           data.get('date') or data.get('datePublished') or 
+                           data.get('pubDate') or data.get('createdAt') or 
+                           data.get('created') or data.get('timestamp') or
+                           data.get('publishTime') or data.get('publishedTime'))
                 
                 articles.append({
                     'url': url,
                     'title': title,
                     'summary': data.get('summary') or data.get('description') or data.get('dek') or '',
-                    'published': data.get('publishedAt') or data.get('published') or data.get('date'),
+                    'published': published,
                 })
         
         # 递归查找
@@ -152,6 +229,18 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
                 if response.status_code == 200:
                     articles = extract_articles_from_html(response.content)
                     
+                    # 如果没有日期，尝试从文章详情页获取（优化：只对必要文章获取）
+                    articles_needing_date = [a for a in articles if not a.get('published')]
+                    if articles_needing_date:
+                        # 只对前10篇没有日期的文章获取日期，避免太慢
+                        max_date_extractions = min(10, len(articles_needing_date))
+                        print(f"  页面 {page}: 从详情页提取日期（{max_date_extractions} 篇）...")
+                        for i, article in enumerate(articles_needing_date[:max_date_extractions]):
+                            date = extract_date_from_article_page(article['url'])
+                            if date:
+                                article['published'] = date
+                            time.sleep(0.3)  # 请求之间稍作延迟，避免触发限流
+                    
                     # 过滤日期范围
                     if date_from or date_to:
                         filtered = []
@@ -171,8 +260,13 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
                                         continue
                                     article['published'] = pub_str  # 保留原始字符串
                                 except:
-                                    pass
-                            filtered.append(article)
+                                    # 日期解析失败，如果没有日期过滤要求，保留文章
+                                    if not (date_from or date_to):
+                                        filtered.append(article)
+                            else:
+                                # 没有日期，如果没有日期过滤要求，保留文章
+                                if not (date_from or date_to):
+                                    filtered.append(article)
                         articles = filtered
                     
                     all_articles.extend(articles)
