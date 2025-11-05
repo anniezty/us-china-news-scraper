@@ -209,14 +209,46 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
     从 Nikkei Asia 获取文章
     
     Args:
-        date_from: 开始日期（可选）
-        date_to: 结束日期（可选）
+        date_from: 开始日期（datetime 或字符串，如 "2025-11-01"）
+        date_to: 结束日期（datetime 或字符串，如 "2025-11-05"）
         max_pages: 最大页数
         max_retries: 最大重试次数
     
     Returns:
         list: 文章列表
     """
+    from datetime import datetime, timezone, timedelta
+    from dateutil import parser as dtparser
+    
+    # 转换日期参数为 datetime 对象
+    if date_from:
+        if isinstance(date_from, str):
+            date_from_dt = dtparser.parse(date_from)
+            if date_from_dt.tzinfo is None:
+                date_from_dt = date_from_dt.replace(tzinfo=timezone.utc)
+            else:
+                date_from_dt = date_from_dt.astimezone(timezone.utc)
+            date_from = date_from_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif isinstance(date_from, datetime):
+            if date_from.tzinfo is None:
+                date_from = date_from.replace(tzinfo=timezone.utc)
+            else:
+                date_from = date_from.astimezone(timezone.utc)
+    
+    if date_to:
+        if isinstance(date_to, str):
+            date_to_dt = dtparser.parse(date_to)
+            if date_to_dt.tzinfo is None:
+                date_to_dt = date_to_dt.replace(tzinfo=timezone.utc)
+            else:
+                date_to_dt = date_to_dt.astimezone(timezone.utc)
+            date_to = date_to_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif isinstance(date_to, datetime):
+            if date_to.tzinfo is None:
+                date_to = date_to.replace(tzinfo=timezone.utc)
+            else:
+                date_to = date_to.astimezone(timezone.utc)
+    
     all_articles = []
     
     for page in range(1, max_pages + 1):
@@ -254,17 +286,22 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
                                     else:
                                         pub_dt = pub_dt.astimezone(timezone.utc)
                                     
+                                    # 检查是否在日期范围内
                                     if date_from and pub_dt < date_from:
-                                        continue
+                                        continue  # 早于开始日期，跳过
                                     if date_to and pub_dt > date_to:
-                                        continue
+                                        continue  # 晚于结束日期，跳过
+                                    
+                                    # 在范围内，保留文章
                                     article['published'] = pub_str  # 保留原始字符串
-                                except:
-                                    # 日期解析失败，如果没有日期过滤要求，保留文章
-                                    if not (date_from or date_to):
-                                        filtered.append(article)
+                                    filtered.append(article)
+                                except Exception as e:
+                                    # 日期解析失败，跳过这篇文章（因为无法判断是否在范围内）
+                                    # print(f"⚠️ 日期解析失败: {pub_str}, 错误: {e}")
+                                    continue
                             else:
-                                # 没有日期，如果没有日期过滤要求，保留文章
+                                # 没有日期，如果有日期过滤要求，跳过（因为无法判断是否在范围内）
+                                # 如果没有日期过滤要求，保留文章
                                 if not (date_from or date_to):
                                     filtered.append(article)
                         articles = filtered
