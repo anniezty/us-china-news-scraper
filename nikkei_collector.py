@@ -141,22 +141,40 @@ def extract_articles_from_html(html_content):
         
         # 排除分类页面
         # 真正的文章通常有具体的文章slug（比较长，包含连字符和多个单词）
-        # 分类页面的URL通常路径段较少，最后一个路径段较短
+        # 分类页面的URL通常路径段较少，最后一个路径段是分类名称
         path_parts = [p for p in href.split('/') if p and p not in ['asia.nikkei.com', '']]
         
         if len(path_parts) >= 2:
             last_part = path_parts[-1]
-            # 检查是否是分类页面
-            # 分类页面的特征：最后一个路径段较短（<20字符），且没有连字符或很少连字符
-            # 真正的文章slug通常较长（>20字符），包含多个连字符
-            if len(last_part) < 20 and last_part.count('-') < 2:
-                # 可能是分类页面，但还要排除一些特殊情况
-                # 如果URL只有2个路径段（如 /business/media-entertainment），很可能是分类页面
+            
+            # 分类页面的特征：
+            # 1. 路径段较少（通常2-3个）
+            # 2. 最后一个路径段是分类名称（相对较短，通常是分类主题）
+            # 3. 真正的文章URL通常有4个或更多路径段，最后一个路径段是文章slug（很长，包含文章标题）
+            
+            # 常见的分类页面模式：
+            # - /business/technology/artificial-intelligence (3段)
+            # - /politics/international-relations/us-china-tensions (3段)
+            # - /spotlight/trump-administration (2段)
+            # - /politics/international-relations (2段)
+            
+            # 真正的文章URL模式：
+            # - /politics/international-relations/us-china-tensions/nvidia-can-t-sell... (4+段，最后一段很长)
+            
+            # 如果路径段少于等于3个，且最后一个路径段长度<30，很可能是分类页面
+            if len(path_parts) <= 3:
+                # 如果是2个路径段，很可能是分类页面
                 if len(path_parts) == 2:
                     continue
-                # 如果URL有3个路径段但最后一个很短，也可能是分类页面
-                if len(path_parts) == 3 and len(last_part) < 15:
-                    continue
+                # 如果是3个路径段，检查最后一个路径段的长度和特征
+                if len(path_parts) == 3:
+                    # 如果最后一个路径段较短（<30字符）且不包含数字，很可能是分类页面
+                    if len(last_part) < 30 and not any(c.isdigit() for c in last_part):
+                        continue
+            
+            # 如果路径段>=4个，但最后一个路径段很短（<25字符），也可能是分类页面
+            elif len(path_parts) >= 4 and len(last_part) < 25:
+                continue
         
         # 去重
         if not any(a['url'] == full_url for a in articles):
