@@ -163,9 +163,11 @@ def extract_articles_from_html(html_content):
             
             # 如果路径段少于等于3个，且最后一个路径段长度<30，很可能是分类页面
             if len(path_parts) <= 3:
-                # 如果是2个路径段，很可能是分类页面
+                # 如果是2个路径段，通常是分类页；但也允许 Opinion 等两段长 slug 的文章
                 if len(path_parts) == 2:
-                    continue
+                    # 允许保留：最后段很长或连字符数量多（明显是文章 slug）
+                    if not (len(last_part) >= 40 or last_part.count('-') >= 4):
+                        continue
                 # 如果是3个路径段，检查最后一个路径段的长度和特征
                 if len(path_parts) == 3:
                     # 如果最后一个路径段较短（<30字符）且不包含数字，很可能是分类页面
