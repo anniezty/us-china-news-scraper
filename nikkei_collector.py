@@ -111,77 +111,70 @@ def extract_articles_from_html(html_content):
             except Exception as e:
                 print(f"⚠️ JSON 解析失败: {e}")
     
-    # 方法2: 直接查找文章链接（改进版）
+    # 方法2: 直接查找文章链接（简化版：既然已经是 China section，就抓取所有明显的文章链接）
     # 查找所有可能的文章链接
     for link in soup.find_all('a', href=True):
         href = link.get('href', '')
         text = link.get_text(strip=True)
         
-        # 匹配文章 URL 模式（更宽泛，包含更多可能的路径）
-        # 匹配常见的文章路径模式
-        article_patterns = [
-            r'/(Politics|Business|Economy|Companies|Markets|Tech|Opinion|Defense|International-relations|Trade-war|Supply-Chain|Automobiles|Semiconductors|Electric-vehicles|Artificial-intelligence|spotlight|Companies|Equities|Materials|Transportation|China-up-close|Policy-Asia)',
-            r'/Economy/',
-            r'/Politics/',
-            r'/Business/',
-            r'/Companies/',
-            r'/Markets/',
-            r'/Tech/',
-            r'/Opinion/',
-            r'/Defense/',
-            r'/World/',
-            r'/Asia/',
+        # 基本检查：有 href 和标题文本
+        if not href or len(text) < 15:
+            continue
+        
+        # 排除明显的非文章链接
+        exclude_patterns = [
+            '/tag/', '/author/', '/search', '/rss', '/newsletter', '/member/', '/marketing/',
+            '/location/east-asia/china?page=',  # 分页链接
+            '/location/east-asia/china#',  # 锚点链接
+            '/editor-s-picks/?$',  # 编辑推荐页面（不是具体文章）
         ]
         
-        # 检查是否匹配任何模式
-        is_article_url = False
-        for pattern in article_patterns:
-            if re.match(pattern, href):
-                is_article_url = True
-                break
+        if any(exclude in href for exclude in exclude_patterns):
+            continue
         
-        # 也检查是否是完整的文章URL（包含文章ID或slug）
-        if not is_article_url and href.startswith('/') and len(href) > 10:
-            # 排除明显的非文章链接
-            non_article_patterns = [
-                r'/location/', r'/tag/', r'/author/', r'/search', r'/rss', r'/newsletter',
-                r'/editor-s-picks/?$',  # 编辑推荐页面（不是具体文章）
-                r'/editor-s-picks/[^/]+/?$',  # 编辑推荐的分类页面（不是具体文章）
-                r'/spotlight/[^/]+/?$',  # spotlight分类页面（没有具体文章）
-                r'/member/',  # 会员相关页面
-                r'/marketing/',  # 营销页面
-                r'/business/[^/]+/?$',  # 业务分类页面（如 /business/media-entertainment）
-            ]
-            if not any(re.search(pattern, href) for pattern in non_article_patterns):
-                # 检查是否是真正的文章（有具体的文章slug）
-                path_parts = [p for p in href.split('/') if p]
-                if len(path_parts) >= 2:  # 至少有两个路径段
-                    # 检查最后一个路径段是否像文章slug（通常比较长）
-                    last_part = path_parts[-1]
-                    if len(last_part) > 20 and ('-' in last_part or last_part.isalnum()):
-                        is_article_url = True
+        # 构建完整 URL
+        full_url = urljoin(NIKKEI_BASE_URL, href) if not href.startswith('http') else href
         
-        if is_article_url:
-            if len(text) > 20:
-                full_url = urljoin(NIKKEI_BASE_URL, href) if not href.startswith('http') else href
-                
-                # 去重
-                if not any(a['url'] == full_url for a in articles):
-                    # 尝试从父元素获取更多信息
-                    parent = link.parent
-                    summary = ''
-                    if parent:
-                        # 查找摘要
-                        summary_elem = parent.find(['p', 'div'], class_=re.compile(r'summary|excerpt|description', re.I))
-                        if summary_elem:
-                            summary = summary_elem.get_text(strip=True)
-                    
-                    articles.append({
-                        'url': full_url,
-                        'title': text,
-                        'summary': summary[:200] if summary else '',
-                        'published': None,
-                    })
+        # 只保留 Nikkei 域名的链接，且不是 location 页面
+        if not full_url.startswith('https://asia.nikkei.com') or '/location/' in full_url:
+            continue
+        
+        # 排除分类页面
+        # 真正的文章通常有具体的文章slug（比较长，包含连字符和多个单词）
+        # 分类页面的URL通常路径段较少，最后一个路径段较短
+        path_parts = [p for p in href.split('/') if p and p not in ['asia.nikkei.com', '']]
+        
+        if len(path_parts) >= 2:
+            last_part = path_parts[-1]
+            # 检查是否是分类页面
+            # 分类页面的特征：最后一个路径段较短（<20字符），且没有连字符或很少连字符
+            # 真正的文章slug通常较长（>20字符），包含多个连字符
+            if len(last_part) < 20 and last_part.count('-') < 2:
+                # 可能是分类页面，但还要排除一些特殊情况
+                # 如果URL只有2个路径段（如 /business/media-entertainment），很可能是分类页面
+                if len(path_parts) == 2:
+                    continue
+                # 如果URL有3个路径段但最后一个很短，也可能是分类页面
+                if len(path_parts) == 3 and len(last_part) < 15:
+                    continue
+        
+        # 去重
+        if not any(a['url'] == full_url for a in articles):
+            # 尝试从父元素获取更多信息
+            parent = link.parent
+            summary = ''
+            if parent:
+                # 查找摘要
+                summary_elem = parent.find(['p', 'div'], class_=re.compile(r'summary|excerpt|description', re.I))
+                if summary_elem:
+                    summary = summary_elem.get_text(strip=True)
+            
+            articles.append({
+                'url': full_url,
+                'title': text,
+                'summary': summary[:200] if summary else '',
+                'published': None,
+            })
     
     # 方法3: 查找特定的文章容器
     if not articles:
