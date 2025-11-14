@@ -36,10 +36,19 @@ def check_test_access():
     try:
         if hasattr(st, 'secrets'):
             if 'test_mode' in st.secrets:
-                test_enabled = st.secrets.get('test_mode', {}).get('enabled', test_enabled)
-                test_password = st.secrets.get('test_mode', {}).get('password', test_password)
-                test_deadline = st.secrets.get('test_mode', {}).get('deadline', test_deadline)
-    except:
+                test_mode_config = st.secrets.get('test_mode', {})
+                # 处理 enabled：支持布尔值和字符串 "true"/"false"
+                enabled_val = test_mode_config.get('enabled', test_enabled)
+                if isinstance(enabled_val, str):
+                    test_enabled = enabled_val.lower() == "true"
+                else:
+                    test_enabled = bool(enabled_val)
+                test_password = test_mode_config.get('password', test_password)
+                test_deadline = test_mode_config.get('deadline', test_deadline)
+    except Exception as e:
+        # 调试信息（仅在开发环境显示）
+        if os.getenv("DEBUG", "").lower() == "true":
+            st.warning(f"⚠️ Test mode config error: {e}")
         pass
     
     # 如果测试模式未启用，直接允许访问
