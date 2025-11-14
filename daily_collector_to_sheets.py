@@ -12,7 +12,11 @@ import os
 import json
 
 # 优先来源（每天定时收集到 Google Sheets）
-PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "reuters.com", "ft.com", "apnews.com"]
+RAW_PRIORITY_SOURCES = os.getenv("PRIORITY_SOURCES_LIST", "")
+if RAW_PRIORITY_SOURCES:
+    PRIORITY_SOURCES = [s.strip() for s in RAW_PRIORITY_SOURCES.split(",") if s.strip()]
+else:
+    PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "ft.com", "apnews.com", "washingtonpost.com", "reuters.com"]
 
 # Google Sheets 配置（从环境变量或配置文件读取）
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_ID", "")
@@ -40,12 +44,20 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     """
     抓取当天的文章并上传到 Google Sheets
     """
+    import sys
+    
+    # 确保所有输出都刷新到日志文件
+    def log_print(*args, **kwargs):
+        print(*args, **kwargs)
+        sys.stdout.flush()
+        sys.stderr.flush()
+    
     if not spreadsheet_id:
         spreadsheet_id = SPREADSHEET_ID
     
     if not spreadsheet_id:
-        print("❌ 错误: 未设置 Google Sheets ID")
-        print("请设置环境变量 GOOGLE_SHEETS_ID 或在代码中指定")
+        log_print("❌ 错误: 未设置 Google Sheets ID")
+        log_print("请设置环境变量 GOOGLE_SHEETS_ID 或在代码中指定")
         return (0, 0)
     
     # 获取凭证路径
@@ -57,15 +69,15 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
         if GOOGLE_CREDENTIALS_JSON:
             credentials_path = get_credentials_path()
         else:
-            print("❌ 错误: 未找到 Google 凭证文件")
-            print("请设置 GOOGLE_CREDENTIALS_PATH 或 GOOGLE_CREDENTIALS_JSON")
+            log_print("❌ 错误: 未找到 Google 凭证文件")
+            log_print("请设置 GOOGLE_CREDENTIALS_PATH 或 GOOGLE_CREDENTIALS_JSON")
             return (0, 0)
     
     today = date.today()
     today_str = today.isoformat()
     
-    print(f"[{datetime.now()}] 开始抓取 {today_str} 的文章...")
-    print(f"来源: {PRIORITY_SOURCES}")
+    log_print(f"[{datetime.now()}] 开始抓取 {today_str} 的文章...")
+    log_print(f"来源: {PRIORITY_SOURCES}")
     
     # 抓取当天的文章
     df = collect(
@@ -77,10 +89,10 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     )
     
     if df.empty:
-        print(f"[{datetime.now()}] 未找到文章")
+        log_print(f"[{datetime.now()}] 未找到文章")
         return (0, 0)
     
-    print(f"[{datetime.now()}] 找到 {len(df)} 篇文章")
+    log_print(f"[{datetime.now()}] 找到 {len(df)} 篇文章")
     
     # 上传到 Google Sheets
     try:
@@ -96,17 +108,19 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
         # 只上传需要的列
         upload_df = df[["Nested?","URL","Date","Outlet","Headline","Nut Graph"]].copy()
         
-        print(f"[{datetime.now()}] 正在上传到 Google Sheets: {sheet_name}...")
+        log_print(f"[{datetime.now()}] 正在上传到 Google Sheets: {sheet_name}...")
         # 追加模式：合并到本周的 sheet（去重）
         export_to_sheets_append(upload_df, spreadsheet_id, sheet_name, credentials_path)
         
-        print(f"[{datetime.now()}] ✅ 成功上传 {len(upload_df)} 篇文章到 Google Sheets")
+        log_print(f"[{datetime.now()}] ✅ 成功上传 {len(upload_df)} 篇文章到 Google Sheets")
         return (len(upload_df), len(upload_df))
         
     except Exception as e:
-        print(f"[{datetime.now()}] ❌ 上传失败: {e}")
+        log_print(f"[{datetime.now()}] ❌ 上传失败: {e}")
         import traceback
         traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
         return (0, len(df))
     finally:
         # 清理临时文件（如果是 GitHub Actions 创建的）

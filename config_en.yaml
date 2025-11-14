@@ -19,13 +19,13 @@ rss_feeds:
   chinafile.com:
   - https://feeds.feedburner.com/chinafile/All
   reuters.com:
-  - "https://rss-bridge.org/bridge01/?action=display&bridge=ReutersBridge&feed=china&format=Atom"
+  - https://www.reuters.com/world/china/
   economist.com:
   - https://www.economist.com/china/rss.xml
   ft.com:
   - https://www.ft.com/china?format=rss
   foreignpolicy.com:
-  - https://foreignpolicy.com/tag/china/feed/
+  - https://foreignpolicy.com/projects/china/
   prcleader.org:
   - https://www.prcleader.org/blog-feed.xml
   warontherocks.com:
@@ -35,9 +35,28 @@ rss_feeds:
   wired.com:
   - https://rsshub.app/wired/tag/china
   apnews.com:
-  - https://rsshub.app/apnews/topics/china
+  - https://apnews.com/hub/china
   asia.nikkei.com:
   - https://asia.nikkei.com/location/east-asia/china
+  piie.com:
+  - https://www.piie.com/research/china
+  politico.com:
+  - https://rss.politico.com/news.xml
+  - https://rss.politico.com/politics.xml
+  - https://rss.politico.com/technology.xml
+  - https://rss.politico.com/world.xml
+  - https://rss.politico.com/defense.xml
+  - https://rss.politico.com/trade.xml
+  wsj.com:
+  - https://shared-data.dowjones.io/gateway/graphql#world/china
+  washingtonpost.com:
+  - https://www.washingtonpost.com/world/asia-pacific/
+  theatlantic.com:
+  - https://www.theatlantic.com/tag/peoples-republic-of-china/
+  csis.org:
+  - https://www.csis.org/regions/asia/china
+
+
 
 
   

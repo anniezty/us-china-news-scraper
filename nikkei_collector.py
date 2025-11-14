@@ -1,282 +1,232 @@
-#!/usr/bin/env python3
 """
-Nikkei Asia 收集器
-从 Nikkei Asia 中国新闻页面提取文章
+Nikkei Asia Collector
+Extract articles from Nikkei Asia China news page
+Based on: https://asia.nikkei.com/location/east-asia/china
 """
+
 import requests
 from bs4 import BeautifulSoup
-import json
 import re
+import time
+from urllib.parse import urljoin
 from datetime import datetime, timezone
 from dateutil import parser as dtparser
-from urllib.parse import urljoin
-import time
 
 NIKKEI_BASE_URL = "https://asia.nikkei.com"
 NIKKEI_CHINA_URL = "https://asia.nikkei.com/location/east-asia/china"
 
 NIKKEI_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-def extract_date_from_article_page(url):
-    """
-    从文章详情页提取发布日期（优化版，更快）
-    """
-    try:
-        response = requests.get(url, headers=NIKKEI_HEADERS, timeout=8)
-        if response.status_code == 200:
-            # 快速检查：先查找 HTML 中的日期
-            content = response.text
-            
-            # 方法1: 查找 time 标签的 datetime 属性（最快）
-            time_match = re.search(r'<time[^>]*datetime=["\']([^"\']+)["\']', content)
-            if time_match:
-                return time_match.group(1)
-            
-            # 方法2: 查找 JSON 数据中的日期（快速提取）
-            json_match = re.search(r'__NEXT_DATA__\s*=\s*({.+?})', content, re.DOTALL)
-            if json_match:
-                try:
-                    data = json.loads(json_match.group(1))
-                    date = _find_date_in_json(data)
-                    if date:
-                        return date
-                except:
-                    pass
-            
-            # 方法3: 查找包含 datetime 属性的元素
-            datetime_match = re.search(r'datetime=["\']([^"\']+)["\']', content)
-            if datetime_match:
-                return datetime_match.group(1)
-            
-            # 方法4: 查找日期格式的文本（如 "31 October 2025"）
-            date_patterns = [
-                r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',
-                r'(\d{4}-\d{2}-\d{2})',
-                r'(\d{2}/\d{2}/\d{4})',
-            ]
-            for pattern in date_patterns:
-                match = re.search(pattern, content, re.IGNORECASE)
-                if match:
-                    return match.group(1)
-    except Exception as e:
-        pass  # 静默失败，不影响主流程
+def extract_date_from_text(text):
+    """Extract date from text"""
+    if not text:
+        return None
+    
+    # Match "28 October 2025" format
+    date_pattern = r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})'
+    match = re.search(date_pattern, text, re.IGNORECASE)
+    if match:
+        try:
+            return dtparser.parse(match.group(1)).isoformat()
+        except:
+            pass
+    
+    # Match ISO format "2025-10-28"
+    iso_match = re.search(r'(\d{4}-\d{2}-\d{2})', text)
+    if iso_match:
+        return iso_match.group(1)
     
     return None
 
-def _find_date_in_json(obj):
+def extract_articles_from_page(html_content, date_from=None, date_to=None):
     """
-    从 JSON 数据中递归查找日期字段
-    """
-    if isinstance(obj, dict):
-        # 检查常见的日期字段
-        for key in ['publishedAt', 'published', 'date', 'datePublished', 'pubDate', 'createdAt', 'created']:
-            if key in obj and obj[key]:
-                return obj[key]
-        # 递归查找
-        for value in obj.values():
-            if isinstance(value, (dict, list)):
-                result = _find_date_in_json(value)
-                if result:
-                    return result
-    elif isinstance(obj, list):
-        for item in obj:
-            if isinstance(item, (dict, list)):
-                result = _find_date_in_json(item)
-                if result:
-                    return result
-    return None
-
-def extract_articles_from_html(html_content):
-    """
-    从 HTML 页面提取文章
+    Extract articles from listing page
     """
     soup = BeautifulSoup(html_content, 'html.parser')
     articles = []
+    seen_urls = set()
     
-    # 方法1: 查找 __NEXT_DATA__ JSON
-    scripts = soup.find_all('script')
-    for script in scripts:
-        if script.string and '__NEXT_DATA__' in script.string:
-            try:
-                # 提取 JSON 数据
-                json_match = re.search(r'__NEXT_DATA__\s*=\s*({.+?})', script.string, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group(1))
-                    # 递归查找文章数据（包含日期）
-                    articles.extend(_extract_from_json(data))
-            except Exception as e:
-                print(f"⚠️ JSON 解析失败: {e}")
+    # Find all article links
+    links = soup.find_all('a', href=True)
     
-    # 方法2: 直接查找文章链接（简化版：既然已经是 China section，就抓取所有明显的文章链接）
-    # 查找所有可能的文章链接
-    for link in soup.find_all('a', href=True):
+    for link in links:
         href = link.get('href', '')
-        text = link.get_text(strip=True)
-        
-        # 基本检查：有 href 和标题文本
-        if not href or len(text) < 15:
+        if not href:
             continue
         
-        # 排除明显的非文章链接
-        exclude_patterns = [
-            '/tag/', '/author/', '/search', '/rss', '/newsletter', '/member/', '/marketing/',
-            '/location/east-asia/china?page=',  # 分页链接
-            '/location/east-asia/china#',  # 锚点链接
-            '/editor-s-picks/?$',  # 编辑推荐页面（不是具体文章）
-        ]
+        # Build full URL
+        if not href.startswith('http'):
+            href = urljoin(NIKKEI_BASE_URL, href)
         
-        if any(exclude in href for exclude in exclude_patterns):
+        # Exclude non-article links
+        if any(skip in href for skip in ['/location/', '/tag/', '/member/', '/marketing/', '/category/', '/about', '/help']):
             continue
         
-        # 构建完整 URL
-        full_url = urljoin(NIKKEI_BASE_URL, href) if not href.startswith('http') else href
+        # Check if it's an article link (URL typically has multiple parts, last part is article slug)
+        # Parse URL to get path segments (excluding domain)
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(href)
+            path_segments = [p for p in parsed.path.split('/') if p]  # Path segments only, excluding domain
+        except:
+            path_segments = [p for p in href.split('/') if p]
+            # Remove domain if present
+            if len(path_segments) > 0 and '.' in path_segments[0]:
+                path_segments = path_segments[1:]
         
-        # 只保留 Nikkei 域名的链接，且不是 location 页面
-        if not full_url.startswith('https://asia.nikkei.com') or '/location/' in full_url:
+        # Article link features:
+        # 1. At least 2 path segments (e.g., /politics/article-slug or /politics/category/article-slug)
+        # 2. Last segment is article slug (usually long, contains hyphens)
+        if len(path_segments) < 2:
             continue
         
-        # 排除分类页面
-        # 真正的文章通常有具体的文章slug（比较长，包含连字符和多个单词）
-        # 分类页面的URL通常路径段较少，最后一个路径段是分类名称
-        path_parts = [p for p in href.split('/') if p and p not in ['asia.nikkei.com', '']]
+        last_part = path_segments[-1]
+        # Article slug usually:
+        # - Length >= 20 characters (longer than category names)
+        # - Contains hyphens or underscores
+        # - No file extensions
+        if (len(last_part) < 20 or 
+            ('-' not in last_part and '_' not in last_part) or
+            '.' in last_part):
+            continue
         
-        if len(path_parts) >= 2:
-            last_part = path_parts[-1]
-            
-            # 分类页面的特征：
-            # 1. 路径段较少（通常2-3个）
-            # 2. 最后一个路径段是分类名称（相对较短，通常是分类主题）
-            # 3. 真正的文章URL通常有4个或更多路径段，最后一个路径段是文章slug（很长，包含文章标题）
-            
-            # 常见的分类页面模式：
-            # - /business/technology/artificial-intelligence (3段)
-            # - /politics/international-relations/us-china-tensions (3段)
-            # - /spotlight/trump-administration (2段)
-            # - /politics/international-relations (2段)
-            
-            # 真正的文章URL模式：
-            # - /politics/international-relations/us-china-tensions/nvidia-can-t-sell... (4+段，最后一段很长)
-            
-            # 如果路径段少于等于3个，且最后一个路径段长度<30，很可能是分类页面
-            if len(path_parts) <= 3:
-                # 如果是2个路径段，通常是分类页；但也允许 Opinion 等两段长 slug 的文章
-                if len(path_parts) == 2:
-                    # 允许保留：最后段很长或连字符数量多（明显是文章 slug）
-                    if not (len(last_part) >= 40 or last_part.count('-') >= 4):
-                        continue
-                # 如果是3个路径段，检查最后一个路径段的长度和特征
-                if len(path_parts) == 3:
-                    # 如果最后一个路径段较短（<30字符）且不包含数字，很可能是分类页面
-                    if len(last_part) < 30 and not any(c.isdigit() for c in last_part):
-                        continue
-            
-            # 如果路径段>=4个，但最后一个路径段很短（<25字符），也可能是分类页面
-            elif len(path_parts) >= 4 and len(last_part) < 25:
-                continue
+        # Exclude category pages: URLs with 2 path segments where the last part is short (category name)
+        # e.g., /politics/international-relations (category page, last part is short)
+        # vs /politics/thai-king-heads-to-china-for-landmark-state-visit (article, last part is long slug)
+        # If 2 segments and last part is long slug (>= 20 chars), it's an article
+        # If 2 segments and last part is short, it's likely a category page
+        if len(path_segments) == 2 and len(last_part) < 20:
+            continue
         
-        # 去重
-        if not any(a['url'] == full_url for a in articles):
-            # 尝试从父元素获取更多信息
-            parent = link.parent
-            summary = ''
-            if parent:
-                # 查找摘要
-                summary_elem = parent.find(['p', 'div'], class_=re.compile(r'summary|excerpt|description', re.I))
-                if summary_elem:
-                    summary = summary_elem.get_text(strip=True)
-            
-            articles.append({
-                'url': full_url,
-                'title': text,
-                'summary': summary[:200] if summary else '',
-                'published': None,
-            })
-    
-    # 方法3: 查找特定的文章容器
-    if not articles:
-        # 尝试查找文章卡片
-        article_containers = soup.find_all(['article', 'div'], class_=re.compile(r'article|story|card', re.I))
-        for container in article_containers:
-            link = container.find('a', href=True)
-            if link:
-                href = link.get('href', '')
-                title = link.get_text(strip=True)
-                if len(title) > 20:
-                    full_url = urljoin(NIKKEI_BASE_URL, href)
-                    if not any(a['url'] == full_url for a in articles):
-                        articles.append({
-                            'url': full_url,
-                            'title': title,
-                            'summary': '',
-                            'published': None,
-                        })
-    
-    return articles
-
-def _extract_from_json(data, articles=None):
-    """
-    递归从 JSON 数据中提取文章（改进版，更好地提取日期）
-    """
-    if articles is None:
-        articles = []
-    
-    if isinstance(data, dict):
-        # 检查是否是文章对象
-        if 'url' in data or 'href' in data or 'slug' in data or 'path' in data:
-            title = data.get('title') or data.get('headline') or data.get('name')
-            url = data.get('url') or data.get('href') or data.get('slug') or data.get('path')
-            
-            if title and url:
-                if not url.startswith('http'):
-                    url = urljoin(NIKKEI_BASE_URL, url)
-                
-                # 更全面地查找日期字段
-                published = (data.get('publishedAt') or data.get('published') or 
-                           data.get('date') or data.get('datePublished') or 
-                           data.get('pubDate') or data.get('createdAt') or 
-                           data.get('created') or data.get('timestamp') or
-                           data.get('publishTime') or data.get('publishedTime'))
-                
-                articles.append({
-                    'url': url,
-                    'title': title,
-                    'summary': data.get('summary') or data.get('description') or data.get('dek') or '',
-                    'published': published,
-                })
+        if href in seen_urls:
+            continue
+        seen_urls.add(href)
         
-        # 递归查找
-        for value in data.values():
-            if isinstance(value, (dict, list)):
-                _extract_from_json(value, articles)
-    
-    elif isinstance(data, list):
-        for item in data:
-            if isinstance(item, (dict, list)):
-                _extract_from_json(item, articles)
+        # Extract title - prioritize h4 element (Nikkei's structure)
+        title = None
+        
+        # Method 1: Find h4 element in parent container (Nikkei uses h4 for article titles)
+        parent = link.parent
+        for _ in range(3):  # Search up to 3 levels
+            if not parent:
+                break
+            
+            # Priority: h4 element (Nikkei's article title structure)
+            h4_elem = parent.find('h4')
+            if h4_elem:
+                h4_text = h4_elem.get_text(strip=True)
+                if h4_text and len(h4_text) >= 30:  # Title should be at least 30 chars
+                    title = h4_text
+                    break
+            
+            # Fallback: other heading elements
+            if not title:
+                title_elem = parent.find(['h1', 'h2', 'h3', 'h5', 'h6'])
+                if title_elem:
+                    title_text = title_elem.get_text(strip=True)
+                    if title_text and len(title_text) >= 30:
+                        title = title_text
+                        break
+            
+            parent = parent.parent
+        
+        # Method 2: From link text (if h4 not found)
+        if not title or len(title) < 30:
+            link_text = link.get_text(strip=True)
+            if link_text and len(link_text) >= 30:
+                title = link_text
+        
+        # Method 3: From link attributes
+        if not title or len(title) < 30:
+            aria_label = link.get('aria-label')
+            if aria_label and len(aria_label) >= 30:
+                title = aria_label
+            else:
+                title_attr = link.get('title')
+                if title_attr and len(title_attr) >= 30:
+                    title = title_attr
+        
+        # Title must be long enough (at least 30 characters for complete sentence)
+        if not title or len(title) < 30:
+            continue
+        
+        # Exclude category names and navigation items
+        title_lower = title.lower()
+        # Category names are usually short phrases
+        category_names = ['international relations', 'companies', 'politics', 'economy', 'business', 
+                         'tech', 'markets', 'defense', 'trade war', 'electric cars in china',
+                         'trump administration', 'artificial intelligence', 'editor-in-chief\'s picks']
+        if title_lower in category_names:
+            continue
+        
+        # Exclude navigation items
+        nav_items = ['read more', 'more', 'view all', 'see all', 'next', 'previous', 'back', 'home']
+        if title_lower in nav_items:
+            continue
+        
+        # Try to extract date from listing page
+        published = None
+        
+        # Method 1: Find nearby time tag or date text
+        parent = link.parent
+        if parent:
+            # Find time tag
+            time_tag = parent.find('time')
+            if time_tag:
+                date_attr = time_tag.get('datetime')
+                if date_attr:
+                    published = date_attr
+                else:
+                    time_text = time_tag.get_text(strip=True)
+                    if time_text:
+                        published = extract_date_from_text(time_text)
+            
+            # If time tag not found, find date in container text
+            if not published:
+                container_text = parent.get_text()
+                published = extract_date_from_text(container_text)
+        
+        # Method 2: Find date from link's row
+        if not published:
+            # Find link's row or container
+            row = link
+            for _ in range(3):  # Search up to 3 levels
+                row = row.parent if row else None
+                if not row:
+                    break
+                row_text = row.get_text()
+                published = extract_date_from_text(row_text)
+                if published:
+                    break
+        
+        articles.append({
+            'url': href,
+            'title': title,
+            'summary': '',
+            'published': published,
+        })
     
     return articles
 
 def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries=3):
     """
-    从 Nikkei Asia 获取文章
+    Fetch articles from Nikkei Asia
     
     Args:
-        date_from: 开始日期（datetime 或字符串，如 "2025-11-01"）
-        date_to: 结束日期（datetime 或字符串，如 "2025-11-05"）
-        max_pages: 最大页数
-        max_retries: 最大重试次数
+        date_from: Start date (datetime or string, e.g., "2025-11-01")
+        date_to: End date (datetime or string, e.g., "2025-11-05")
+        max_pages: Maximum number of pages
+        max_retries: Maximum retry attempts
     
     Returns:
-        list: 文章列表
+        list: List of articles
     """
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
     from dateutil import parser as dtparser
     
-    # 转换日期参数为 datetime 对象
+    # Convert date parameters to datetime objects
     if date_from:
         if isinstance(date_from, str):
             date_from_dt = dtparser.parse(date_from)
@@ -308,35 +258,16 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
     all_articles = []
     
     for page in range(1, max_pages + 1):
-        url = f"{NIKKEI_CHINA_URL}?page={page}"
+        url = f"{NIKKEI_CHINA_URL}?page={page}" if page > 1 else NIKKEI_CHINA_URL
         
         for attempt in range(max_retries):
             try:
                 response = requests.get(url, headers=NIKKEI_HEADERS, timeout=15)
                 
                 if response.status_code == 200:
-                    articles = extract_articles_from_html(response.content)
+                    articles = extract_articles_from_page(response.content, date_from, date_to)
                     
-                    # 如果没有日期，尝试从文章详情页获取（优化：根据是否有日期过滤要求决定）
-                    articles_needing_date = [a for a in articles if not a.get('published')]
-                    if articles_needing_date:
-                        # 如果有日期过滤要求，需要获取所有文章的日期；否则只获取前10篇
-                        if date_from or date_to:
-                            # 有日期过滤要求，需要获取所有文章的日期
-                            max_date_extractions = len(articles_needing_date)
-                            print(f"  页面 {page}: 从详情页提取日期（{max_date_extractions} 篇，需要日期过滤）...")
-                        else:
-                            # 没有日期过滤要求，只获取前10篇
-                            max_date_extractions = min(10, len(articles_needing_date))
-                            print(f"  页面 {page}: 从详情页提取日期（{max_date_extractions} 篇）...")
-                        
-                        for i, article in enumerate(articles_needing_date[:max_date_extractions]):
-                            date = extract_date_from_article_page(article['url'])
-                            if date:
-                                article['published'] = date
-                            time.sleep(0.3)  # 请求之间稍作延迟，避免触发限流
-                    
-                    # 过滤日期范围
+                    # Filter by date range
                     if date_from or date_to:
                         filtered = []
                         for article in articles:
@@ -349,77 +280,67 @@ def fetch_nikkei_articles(date_from=None, date_to=None, max_pages=3, max_retries
                                     else:
                                         pub_dt = pub_dt.astimezone(timezone.utc)
                                     
-                                    # 检查是否在日期范围内
+                                    # Check if within date range
                                     if date_from and pub_dt < date_from:
-                                        continue  # 早于开始日期，跳过
+                                        continue
                                     if date_to and pub_dt > date_to:
-                                        continue  # 晚于结束日期，跳过
+                                        continue
                                     
-                                    # 在范围内，保留文章
-                                    article['published'] = pub_str  # 保留原始字符串
                                     filtered.append(article)
-                                except Exception as e:
-                                    # 日期解析失败，跳过这篇文章（因为无法判断是否在范围内）
-                                    # print(f"⚠️ 日期解析失败: {pub_str}, 错误: {e}")
+                                except:
+                                    # Date parsing failed, skip if date filtering is required
                                     continue
                             else:
-                                # 没有日期，如果有日期过滤要求，跳过（因为无法判断是否在范围内）
-                                # 如果没有日期过滤要求，保留文章
-                                if not (date_from or date_to):
-                                    filtered.append(article)
+                                # No date, skip if date filtering is required
+                                continue
                         articles = filtered
                     
                     all_articles.extend(articles)
-                    print(f"  页面 {page}: 获取 {len(articles)} 篇文章")
-                    break  # 成功，跳出重试循环
-                    
+                    break  # Success, exit retry loop
                 elif response.status_code == 403:
                     if attempt < max_retries - 1:
-                        print(f"⚠️ Nikkei 403 Forbidden (页面 {page}, 尝试 {attempt + 1}/{max_retries})")
+                        print(f"⚠️ Nikkei 403 Forbidden (page {page}, attempt {attempt + 1}/{max_retries})")
                         time.sleep(2)
                         continue
                     else:
-                        print(f"❌ Nikkei 页面 {page} 持续返回 403")
+                        print(f"❌ Nikkei page {page} consistently returns 403")
                         break
                 elif response.status_code == 429:
-                    wait_time = 5 + (attempt * 2)
+                    wait_time = 5 + attempt * 2
                     if attempt < max_retries - 1:
-                        print(f"⚠️ Nikkei 限流 (429)，等待 {wait_time} 秒...")
+                        print(f"⚠️ Nikkei rate limited (429), waiting {wait_time} seconds...")
                         time.sleep(wait_time)
                         continue
                     else:
-                        print(f"❌ Nikkei 页面 {page} 持续限流")
+                        print(f"❌ Nikkei page {page} consistently rate limited")
                         break
                 else:
                     if attempt < max_retries - 1:
-                        print(f"⚠️ Nikkei 页面 {page} 返回 {response.status_code}")
+                        print(f"⚠️ Nikkei page {page} returned {response.status_code}")
                         time.sleep(2)
                         continue
-                    else:
-                        break
-                        
             except requests.exceptions.Timeout:
                 if attempt < max_retries - 1:
-                    print(f"⚠️ Nikkei 页面 {page} 超时 (尝试 {attempt + 1}/{max_retries})")
+                    print(f"⚠️ Nikkei page {page} timeout (attempt {attempt + 1}/{max_retries})")
                     time.sleep(3)
                     continue
                 else:
-                    print(f"❌ Nikkei 页面 {page} 超时")
+                    print(f"❌ Nikkei page {page} timeout")
                     break
             except Exception as e:
                 if attempt < max_retries - 1:
-                    print(f"⚠️ Nikkei 页面 {page} 错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+                    print(f"⚠️ Nikkei page {page} error (attempt {attempt + 1}/{max_retries}): {e}")
                     time.sleep(2)
                     continue
                 else:
-                    print(f"❌ Nikkei 页面 {page} 错误: {e}")
+                    print(f"❌ Nikkei page {page} error: {e}")
                     break
         
-        # 页面之间延迟
+        # Delay between pages
         if page < max_pages:
-            time.sleep(2)
+            time.sleep(1)
     
-    # 去重
+    # Deduplicate
     seen_urls = set()
     unique_articles = []
     for article in all_articles:

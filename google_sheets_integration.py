@@ -17,7 +17,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-def get_sheets_client(credentials_path: str = "google_credentials.json"):
+def get_sheets_client(credentials_path: str = None):
     """
     获取 Google Sheets 客户端
     
@@ -67,7 +67,11 @@ def get_sheets_client(credentials_path: str = "google_credentials.json"):
             print(f"⚠️ 环境变量 GOOGLE_CREDENTIALS_JSON 格式错误: {e}")
     
     # 方式 3: 从本地文件读取
-    if os.path.exists(credentials_path):
+    # 如果 credentials_path 为 None，使用默认路径
+    if credentials_path is None:
+        credentials_path = "google_credentials.json"
+    
+    if credentials_path and os.path.exists(credentials_path):
         creds = Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
         return gspread.authorize(creds)
     
@@ -81,7 +85,7 @@ def get_sheets_client(credentials_path: str = "google_credentials.json"):
     )
 
 def export_to_sheets(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = None, 
-                     credentials_path: str = "google_credentials.json"):
+                     credentials_path: str = None):
     """
     导出 DataFrame 到 Google Sheets
     
@@ -122,9 +126,9 @@ def export_to_sheets(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = No
     print(f"✅ 已导出 {len(df)} 行数据到 Google Sheets: {sheet_name}")
 
 def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = None, 
-                            credentials_path: str = "google_credentials.json", sort_by_date: bool = True):
+                            credentials_path: str = None, sort_by_date: bool = True):
     """
-    追加 DataFrame 到 Google Sheets（去重后追加，并按日期排序）
+    追加 DataFrame 到 Google Sheets（跨 sheet 去重后追加，并按日期排序）
     
     Args:
         df: 要追加的 DataFrame
@@ -136,26 +140,34 @@ def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: s
     client = get_sheets_client(credentials_path)
     spreadsheet = client.open_by_key(spreadsheet_id)
     
+    # 跨 sheet 去重：收集所有 sheet 中的 URL
+    all_existing_urls = set()
+    if 'URL' in df.columns:
+        for sheet in spreadsheet.worksheets():
+            try:
+                sheet_data = sheet.get_all_values()
+                if len(sheet_data) > 1:
+                    sheet_df = pd.DataFrame(sheet_data[1:], columns=sheet_data[0])
+                    if 'URL' in sheet_df.columns:
+                        all_existing_urls.update(sheet_df['URL'].dropna())
+            except Exception as e:
+                print(f"⚠️ 读取 sheet '{sheet.title}' 时出错: {e}")
+                continue
+        
+        # 过滤掉已存在的 URL
+        original_count = len(df)
+        df = df[~df['URL'].isin(all_existing_urls)]
+        if len(df) < original_count:
+            print(f"📝 跨 sheet 去重：过滤掉 {original_count - len(df)} 篇已存在的文章")
+    
     # 选择或创建 sheet
     if sheet_name:
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
-            # 如果 sheet 已存在，读取现有数据用于去重
+            # 如果 sheet 已存在，读取现有数据
             existing_data = worksheet.get_all_values()
             if len(existing_data) > 1:
                 existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
-                # 按 URL 去重：只保留新数据中不存在的
-                if 'URL' in existing_df.columns and 'URL' in df.columns:
-                    existing_urls = set(existing_df['URL'].dropna())
-                    df = df[~df['URL'].isin(existing_urls)]
-                    if df.empty:
-                        print(f"⚠️ 所有数据已存在，重新排序现有数据...")
-                        # 即使没有新数据，也重新排序现有数据
-                        if sort_by_date and 'Date' in existing_df.columns:
-                            _sort_sheet_by_date(worksheet, existing_df, existing_data[0])
-                            print(f"✅ 已按日期排序完成")
-                        return
-                
                 # 合并现有数据和新数据
                 combined_df = pd.concat([existing_df, df], ignore_index=True)
             else:
@@ -171,17 +183,22 @@ def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: s
         existing_data = worksheet.get_all_values()
         if len(existing_data) > 1:
             existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
-            if 'URL' in existing_df.columns and 'URL' in df.columns:
-                existing_urls = set(existing_df['URL'].dropna())
-                df = df[~df['URL'].isin(existing_urls)]
-                if df.empty:
-                    print(f"⚠️ 所有数据已存在，跳过追加")
-                    if sort_by_date and 'Date' in existing_df.columns:
-                        _sort_sheet_by_date(worksheet, existing_df, existing_data[0])
-                    return
             combined_df = pd.concat([existing_df, df], ignore_index=True)
         else:
             combined_df = df.copy()
+    
+    # 如果没有新数据，只重新排序
+    if df.empty:
+        if len(existing_data) > 1:
+            existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
+            print(f"⚠️ 所有数据已存在（跨 sheet 去重），重新排序现有数据...")
+            if sort_by_date and 'Date' in existing_df.columns:
+                _sort_sheet_by_date(worksheet, existing_df, existing_data[0])
+                print(f"✅ 已按日期排序完成")
+            return
+        else:
+            print(f"⚠️ 没有新数据可追加")
+            return
     
     # 按日期排序（从早到晚）
     if sort_by_date and 'Date' in combined_df.columns:
@@ -256,7 +273,7 @@ def create_weekly_sheet(df: pd.DataFrame, spreadsheet_id: str,
     export_to_sheets(df, spreadsheet_id, sheet_name, credentials_path)
 
 def read_from_sheets(spreadsheet_id: str, sheet_name: str = None,
-                    credentials_path: str = "google_credentials.json") -> pd.DataFrame:
+                    credentials_path: str = None) -> pd.DataFrame:
     """
     从 Google Sheets 读取数据
     """

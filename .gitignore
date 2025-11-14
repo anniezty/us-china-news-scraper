@@ -56,3 +56,10 @@ streamlit_secrets_content.txt
 *Secrets*.txt
 *配置内容.txt
 🔧_快速修复指南.md
+wapo_cookie.txt
+
+# Secrets directory (contains cookies and other sensitive files)
+.secrets/
+*.cookie
+axios_cookie.txt
+bloomberg_cookie.txt
