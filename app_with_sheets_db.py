@@ -326,15 +326,75 @@ if use_api_classification:
     try:
         from api_classifier import get_budget_status, is_api_available
         
-        if is_api_available():
+        # Debug: Show API availability status
+        api_available = is_api_available()
+        
+        if api_available:
             budget_status = get_budget_status()
             
             if budget_status["has_budget"]:
                 st.info(f"💰 API Budget Status: ${budget_status['cost_today']:.3f} used today (${budget_status['remaining']:.3f} remaining)")
             else:
                 st.warning("⚠️ No daily budget limit set. Consider setting `daily_budget_usd` in secrets.toml to avoid unexpected costs.")
-    except:
-        pass
+        else:
+            # Debug: Show why API is not available
+            debug_info = []
+            try:
+                import streamlit as st
+                if hasattr(st, "secrets") and "api" in st.secrets:
+                    api_config = st.secrets.get("api", {})
+                    classifier_enabled = api_config.get("classifier_enabled", None)
+                    openai_api_key = api_config.get("openai_api_key", None)
+                    
+                    if classifier_enabled is None:
+                        debug_info.append("❌ `classifier_enabled` not found in secrets")
+                    elif isinstance(classifier_enabled, str):
+                        if classifier_enabled.lower() != "true":
+                            debug_info.append(f"❌ `classifier_enabled` is '{classifier_enabled}' (should be true or 'true')")
+                        else:
+                            debug_info.append("✅ `classifier_enabled` is 'true'")
+                    elif not bool(classifier_enabled):
+                        debug_info.append(f"❌ `classifier_enabled` is {classifier_enabled} (should be true)")
+                    else:
+                        debug_info.append("✅ `classifier_enabled` is true")
+                    
+                    if not openai_api_key:
+                        debug_info.append("❌ `openai_api_key` is empty or not found")
+                    elif len(openai_api_key) < 10:
+                        debug_info.append("❌ `openai_api_key` seems invalid (too short)")
+                    else:
+                        debug_info.append(f"✅ `openai_api_key` found (length: {len(openai_api_key)})")
+                else:
+                    debug_info.append("❌ No `[api]` section found in Streamlit secrets")
+                    debug_info.append("💡 Please configure secrets in Streamlit Cloud: Settings → Secrets")
+            except Exception as e:
+                debug_info.append(f"⚠️ Error checking secrets: {e}")
+            
+            with st.expander("🔍 API Configuration Debug Info", expanded=True):
+                st.error("⚠️ API classifier is not available")
+                st.markdown("**Debug information:**")
+                for info in debug_info:
+                    st.text(info)
+                st.markdown("---")
+                st.markdown("**How to fix:**")
+                st.markdown("""
+                1. Go to Streamlit Cloud: https://share.streamlit.io/
+                2. Open your app settings
+                3. Click "Secrets" or "Settings" → "Secrets"
+                4. Make sure you have:
+                   ```toml
+                   [api]
+                   classifier_enabled = true
+                   provider = "openai"
+                   openai_api_key = "sk-your-api-key"
+                   ```
+                5. Save and redeploy the app
+                """)
+    except Exception as e:
+        st.error(f"⚠️ Error checking API availability: {e}")
+        import traceback
+        with st.expander("Error details"):
+            st.code(traceback.format_exc())
 
 # Google Sheets configuration
 use_sheets_db = False
@@ -409,8 +469,8 @@ elif run:
         time_since_last = (datetime.now() - st.session_state.last_api_call_time).total_seconds()
         if time_since_last < 5:  # 5 秒内重复执行，可能是 hot-reload
             st.warning("⚠️ Detected potential duplicate execution. Please wait a few seconds before retrying.")
-            st.stop()
-    
+        st.stop()
+
     if end_date > date.today():
         st.error("End date cannot be in the future.")
     elif start_date > end_date:
@@ -670,9 +730,16 @@ elif run:
                 except Exception:
                     continue
 
+            # Track API calls for debugging (use list to allow modification in nested function)
+            api_stats = {"calls_made": 0, "calls_successful": 0}
+
             def assign_category(row):
                 # Try using API classification (if enabled)
                 if use_api_classification:
+                    # Debug: Log that API classification is enabled
+                    import sys
+                    print(f"🔍 assign_category() called with use_api_classification=True", file=sys.stderr, flush=True)
+                    
                     # 记录 API 调用时间（用于检测重复执行）
                     if st.session_state.last_api_call_time is None:
                         st.session_state.last_api_call_time = datetime.now()
@@ -680,25 +747,35 @@ elif run:
                         from api_classifier import classify_with_api, is_api_available
                         import time
                         
-                        if is_api_available():
+                        api_available_check = is_api_available()
+                        print(f"🔍 is_api_available() check in assign_category: {api_available_check}", file=sys.stderr, flush=True)
+                        
+                        if api_available_check:
                             category_list = [cat for cat, _ in compiled] + ["Uncategorized"]
                             
                             # Add retry logic for rate limits
                             max_retries = 3
                             for attempt in range(max_retries):
                                 try:
+                                    api_stats["calls_made"] += 1
                                     api_cat = classify_with_api(
                                         row.get('Headline', ''),
                                         row.get('Nut Graph', ''),
                                         category_list
                                     )
                                     if api_cat:
+                                        api_stats["calls_successful"] += 1
                                         # Debug: 显示使用了 API 分类
                                         if not hasattr(assign_category, '_api_used'):
                                             st.info("✅ Using API classification (95-98% accuracy)")
                                             assign_category._api_used = True
                                         return api_cat
-                                    break  # Success, exit retry loop
+                                    else:
+                                        # API returned None - log this for debugging
+                                        if not hasattr(assign_category, '_api_returned_none_warned'):
+                                            st.warning("⚠️ API classification returned None (check logs for details). Falling back to keyword classification.")
+                                            assign_category._api_returned_none_warned = True
+                                    break  # Exit retry loop (even if api_cat is None)
                                 except Exception as e:
                                     if "rate_limit" in str(e).lower() and attempt < max_retries - 1:
                                         # Wait and retry for rate limit errors
@@ -755,6 +832,23 @@ elif run:
             df["Category"] = categories
             progress_bar.progress(100)
             status_text.text("✅ Complete!")
+            
+            # Show API usage summary if API classification was used
+            if use_api_classification and api_stats["calls_made"] > 0:
+                try:
+                    from api_classifier import get_budget_status
+                    budget_status = get_budget_status()
+                    st.info(f"📊 API Usage: {api_stats['calls_made']} calls attempted, {api_stats['calls_successful']} successful. "
+                           f"Budget: ${budget_status['cost_today']:.3f} used today "
+                           f"(${budget_status['remaining']:.3f} remaining)")
+                    
+                    # Note about Streamlit Cloud temporary file system
+                    # Check if running on Streamlit Cloud (has STREAMLIT_SERVER_RUNNING_ON_PORT env var)
+                    if os.getenv("STREAMLIT_SERVER_RUNNING_ON_PORT"):
+                        st.warning("ℹ️ Note: In Streamlit Cloud, budget tracking resets on each deployment/restart due to temporary file system. "
+                                  "The actual API calls are still being made and charged to your OpenAI account.")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not retrieve budget status: {e}")
             
             # Store result in session state to persist
             st.session_state.df_result = df.copy()

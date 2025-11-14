@@ -170,8 +170,15 @@ def classify_with_api(headline: str, nut_graph: str,
     Returns:
         分类名称，如果无法分类则返回 None
     """
+    # Debug: Log function entry
+    import sys
+    print(f"🔍 classify_with_api() called: headline='{headline[:50]}...'", file=sys.stderr, flush=True)
+    
     # 检查是否启用 API
-    if not is_api_available():
+    api_available = is_api_available()
+    print(f"🔍 is_api_available() returned: {api_available}", file=sys.stderr, flush=True)
+    if not api_available:
+        print("❌ API not available, returning None", file=sys.stderr, flush=True)
         return None
     
     # 自动检测 provider（如果未指定）
@@ -186,11 +193,20 @@ def classify_with_api(headline: str, nut_graph: str,
     
     text = f"{headline}\n\n{nut_graph}"
     
+    print(f"🔍 Provider: {provider}", file=sys.stderr, flush=True)
+    
     if provider == "openai":
-        return _classify_openai(text, categories)
+        print("🔍 Calling _classify_openai()", file=sys.stderr, flush=True)
+        result = _classify_openai(text, categories)
+        print(f"🔍 _classify_openai() returned: {result}", file=sys.stderr, flush=True)
+        return result
     elif provider == "anthropic":
-        return _classify_anthropic(text, categories)
+        print("🔍 Calling _classify_anthropic()", file=sys.stderr, flush=True)
+        result = _classify_anthropic(text, categories)
+        print(f"🔍 _classify_anthropic() returned: {result}", file=sys.stderr, flush=True)
+        return result
     else:
+        print(f"❌ Unknown provider: {provider}, returning None", file=sys.stderr, flush=True)
         return None
 
 def _classify_openai(text: str, categories: list[str]) -> Optional[str]:
@@ -210,9 +226,17 @@ def _classify_openai(text: str, categories: list[str]) -> Optional[str]:
                 pass
         
         if not api_key:
+            import sys
+            print("❌ API key not found", file=sys.stderr, flush=True)
             return None
         if not _budget_allows_call():
+            import sys
+            print("❌ Budget limit reached, skipping API call", file=sys.stderr, flush=True)
             return None
+        
+        # Debug: Log API call attempt
+        import sys
+        print(f"🔍 Attempting API call with key: {api_key[:10]}...", file=sys.stderr, flush=True)
         
         client = OpenAI(api_key=api_key)
         
@@ -355,6 +379,7 @@ Return ONLY the category name, nothing else. If unsure, return "Uncategorized".
         except:
             pass
         
+        # Make actual API call
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -366,7 +391,20 @@ Return ONLY the category name, nothing else. If unsure, return "Uncategorized".
         )
         
         result = response.choices[0].message.content.strip()
-        _record_call()
+        
+        # Record API call (for budget tracking)
+        # Note: In Streamlit Cloud, the file system is temporary, so budget tracking
+        # may reset on each deployment/restart. This is expected behavior.
+        try:
+            _record_call()
+        except Exception as e:
+            # Silently fail budget tracking if file system is not available
+            # (e.g., in Streamlit Cloud with temporary file system)
+            pass
+        
+        # Debug: Log successful API call
+        import sys
+        print(f"✅ API call successful: result='{result}'", file=sys.stderr, flush=True)
         
         # Add adaptive delay to avoid hitting TPM rate limits
         # 200,000 TPM = ~3,333 tokens/second = ~6-7 requests/second
@@ -383,15 +421,21 @@ Return ONLY the category name, nothing else. If unsure, return "Uncategorized".
         elif result == "Uncategorized":
             return "Uncategorized"
         else:
+            # Debug: Log invalid result
+            import sys
+            print(f"⚠️ API returned invalid category: '{result}' (not in categories list)", file=sys.stderr, flush=True)
             return None
             
     except ImportError:
-        print("⚠️ OpenAI SDK 未安装，请运行: pip install openai")
+        import sys
+        print("❌ OpenAI SDK not installed, run: pip install openai", file=sys.stderr, flush=True)
         return None
     except Exception as e:
-        print(f"⚠️ OpenAI API 调用失败: {e}")
+        import sys
         import traceback
-        traceback.print_exc()
+        error_msg = f"❌ OpenAI API call failed: {e}"
+        print(error_msg, file=sys.stderr, flush=True)
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
         return None
 
 def _classify_anthropic(text: str, categories: list[str]) -> Optional[str]:
