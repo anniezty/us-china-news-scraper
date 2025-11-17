@@ -274,18 +274,84 @@ def _classify_openai(text: str, categories: list[str]) -> Optional[str]:
             categories_with_desc.append(f"- {cat}: {desc}")
         categories_explanation = "\n".join(categories_with_desc)
         
+        # 加载用户反馈的示例
+        user_feedback_examples = []
+        feedback_file = Path("classification_feedback.json")
+        if feedback_file.exists():
+            try:
+                with open(feedback_file, 'r') as f:
+                    feedback_data = json.load(f)
+                # 只使用"incorrect"的反馈，因为这是用户明确指出的错误分类
+                for url, feedback in feedback_data.items():
+                    if feedback.get('status') == 'incorrect' and feedback.get('correct_category'):
+                        headline = feedback.get('headline', '')
+                        correct_cat = feedback.get('correct_category', '')
+                        reason = feedback.get('reason', '').strip()
+                        # 如果有原因，添加到示例中（让AI更好地理解）
+                        if reason:
+                            user_feedback_examples.append(f'- "{headline}" → {correct_cat} (Reason: {reason})')
+                        else:
+                            user_feedback_examples.append(f'- "{headline}" → {correct_cat}')
+            except Exception as e:
+                # 如果读取失败，忽略（不影响主要功能）
+                pass
+        
+        # 构建用户反馈示例文本
+        user_feedback_text = ""
+        if user_feedback_examples:
+            user_feedback_text = f"\n\nUser feedback examples (recent corrections - use these to improve accuracy):\n" + "\n".join(user_feedback_examples[-20:])  # 使用最近20个反馈（从10个增加到20个）
+        
         # 构建改进的提示词（包含类别说明和示例）
         prompt = f"""You are a professional news classification assistant specializing in US-China relations.
 
 Available categories with descriptions:
 {categories_explanation}
 
+**IMPORTANT: National-Level vs Company-Level News**
+
+The 22 categories above are ONLY for NATIONAL-LEVEL news (government policies, bilateral relations, strategic competition, etc.).
+
+**Company-level news should be classified as "Uncategorized":**
+- Articles primarily about individual companies (Tencent, Alibaba, Huawei, ByteDance, TikTok, Xiaomi, BYD, etc.) without significant national policy implications
+- Company product launches, business operations, financial results, or internal company news
+- Company-level AI developments (e.g., "Tencent AI launches new model") unless it involves national policy, export controls, or US-China strategic competition
+- Company partnerships or deals that are purely commercial without geopolitical significance
+
+**National-level news examples (should be classified):**
+- "US bans Huawei from 5G networks" → Tech & National Security (national policy)
+- "China restricts AI chip exports to US" → Chips (national policy)
+- "Tencent faces US sanctions over data security concerns" → Tech & National Security (national policy)
+- "Biden administration targets Chinese AI companies" → Administration (national policy)
+
+**Company-level news examples (should be "Uncategorized"):**
+- "Tencent AI launches new chatbot" → Uncategorized (company product)
+- "Alibaba reports strong quarterly earnings" → Uncategorized (company financials)
+- "Huawei unveils new smartphone" → Uncategorized (company product)
+- "ByteDance expands TikTok features" → Uncategorized (company operations)
+
 Classification rules:
 1. Choose the MOST SPECIFIC category that best fits the article
-2. If an article could fit multiple categories, choose the PRIMARY focus
-3. If the article doesn't clearly fit any category, return "Uncategorized"
-4. Pay attention to context - for example, "Higher Education" requires university/college context
-5. "Administration" focuses on White House/Congress, not all government agencies
+2. If an article could fit multiple categories, choose the PRIMARY focus (the category that BEST describes the main topic)
+3. If the article is primarily about a COMPANY (not national policy/relations), return "Uncategorized"
+4. If the article doesn't clearly fit any category, return "Uncategorized"
+5. Pay attention to context - for example, "Higher Education" requires university/college context
+6. "Administration" focuses on White House/Congress, not all government agencies
+7. **CRITICAL: Only classify articles that involve NATIONAL-LEVEL policies, relations, or strategic competition. Company-level news goes to "Uncategorized".**
+
+**Multi-category handling (choose the MOST SPECIFIC category):**
+- If an article could fit multiple categories, choose the one that BEST describes the PRIMARY focus
+- For Taiwan-related articles:
+  - If primarily about Taiwan issue/situation → "Taiwan" (more specific)
+  - If about broader regional relations involving Taiwan → "Geopolitics" (broader)
+  - Example: "Japan warns China over Taiwan" → Taiwan (specific issue)
+  - Example: "China-Japan relations strained by multiple issues including Taiwan" → Geopolitics (broader relations)
+- For trade-related articles:
+  - If primarily about tariffs/sanctions/trade disputes → "Trade & Commerce" (more specific)
+  - If about broader economic relations/investment → "Business & Investment" (broader)
+- For technology-related articles:
+  - If primarily about chips/semiconductors → "Chips" (more specific)
+  - If about broader tech competition → "Tech & National Security" (broader)
+- Always choose the category that is MOST SPECIFIC and BEST describes the PRIMARY focus of the article
 
 Examples (from your labeled data - 75 real examples covering all 22 categories):
 - "Trump orders tariff pause after Xi makes rare call" → Administration
@@ -364,10 +430,17 @@ Examples (from your labeled data - 75 real examples covering all 22 categories):
 - "U.S. and allies announce new sanctions on Chinese firms" → US Multilateralism
 - "Blinken rallies partners in Pacific against China" → US Multilateralism
 
+{user_feedback_text}
+
 Article to classify:
 {text}
 
-Return ONLY the category name, nothing else. If unsure, return "Uncategorized".
+**Before classifying, ask yourself:**
+1. Is this primarily about a COMPANY (Tencent, Alibaba, Huawei, ByteDance, etc.) without national policy implications? → "Uncategorized"
+2. Does this involve NATIONAL-LEVEL policies, relations, or strategic competition? → Classify into appropriate category
+3. Is this a company product launch, financial report, or internal company news? → "Uncategorized"
+
+Return ONLY the category name, nothing else. If unsure or if it's company-level news, return "Uncategorized".
 """
         
         # 从环境变量或 Streamlit secrets 获取模型

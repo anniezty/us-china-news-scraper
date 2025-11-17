@@ -74,8 +74,15 @@ def are_similar_articles_api(
         
         client = OpenAI(api_key=api_key)
         
-        # 构建 prompt
+        # 构建改进的 prompt（更好地识别地缘政治相关新闻）
         prompt = f"""You are a news analysis assistant. Determine if these two news articles are about the same event/story, even if reported by different outlets.
+
+**IMPORTANT**: Articles about the same geopolitical event should be grouped together, even if they focus on different aspects or use different wording.
+
+Examples of articles that should be grouped:
+- "China-Japan tensions over Taiwan" and "Japan-China relations strained by Taiwan issue" → YES (same event, different wording)
+- "China rolls out red carpet for Thailand's king" and "Thailand's king visits China" → YES (same event)
+- "US-China trade talks resume" and "Bilateral trade negotiations between US and China" → YES (same event)
 
 Article 1:
 Headline: {headline1}
@@ -90,10 +97,12 @@ Outlet: {outlet2}
 Date: {date2}
 
 Are these two articles about the same event/story? Consider:
-- Same core event/fact
-- Same time period
-- Same key actors/entities
-- Different outlets may report the same story differently
+- Same core event/fact (even if reported from different angles)
+- Same time period (within a few days)
+- Same key actors/entities (e.g., China, Japan, Taiwan, US, etc.)
+- Same geopolitical context (e.g., Taiwan tensions, trade disputes, diplomatic visits)
+- Different outlets may report the same story differently (different wording, different focus)
+- Articles about the same topic but different aspects should still be grouped (e.g., "China-Japan tensions" and "Japan-China relations strained")
 
 Respond with ONLY "yes" or "no", nothing else."""
         
@@ -194,8 +203,8 @@ def are_similar_articles(row1: pd.Series, row2: pd.Series, threshold: float = 0.
     
     # 步骤 2: 中间地带（0.4 - 0.7）- 用 API 确认
     # 只对"较可能相似"的文章才用 API，进一步减少 API 调用
-    # 提高 api_threshold 从 0.4 到 0.45，减少不必要的 API 调用
-    if use_api and combined_sim >= max(api_threshold, 0.45):
+    # 降低 api_threshold 从 0.45 到 0.40，让更多边界情况使用 API 判断（提高地缘政治新闻识别）
+    if use_api and combined_sim >= max(api_threshold, 0.40):
         api_result = are_similar_articles_api(
             headline1, nut1, headline2, nut2,
             outlet1, outlet2, date1, date2
@@ -208,7 +217,7 @@ def are_similar_articles(row1: pd.Series, row2: pd.Series, threshold: float = 0.
 
 def group_similar_news(df: pd.DataFrame, similarity_threshold: float = 0.7, min_group_size: int = 2, use_api: bool = True) -> pd.DataFrame:
     """
-    将相似新闻分组
+    将相似新闻分组（按类别分组，然后在每个类别内进行相似度检查）
     
     Returns:
         DataFrame with 'GroupID' column indicating which articles are similar
@@ -222,38 +231,58 @@ def group_similar_news(df: pd.DataFrame, similarity_threshold: float = 0.7, min_
     # 重置索引以便追踪
     df = df.reset_index(drop=True)
     
-    group_id = 0
-    processed = set()
+    # 先按类别分组，然后在每个类别内进行相似度检查
+    # 这样可以确保同一类别内的相似文章被正确分组
+    if 'Category' not in df.columns:
+        # 如果没有类别列，使用全局分组
+        category_groups = [('All', df)]
+    else:
+        # 按类别分组
+        category_groups = [(cat, df[df['Category'] == cat]) for cat in df['Category'].unique()]
     
-    for i in range(len(df)):
-        if i in processed:
+    group_id = 0
+    
+    # 对每个类别分别进行相似度检查
+    for category, category_df in category_groups:
+        if category_df.empty:
             continue
         
-        # 创建新组
-        df.loc[i, 'GroupID'] = group_id
-        processed.add(i)
+        # 保存原始索引
+        original_indices = category_df.index.tolist()
+        processed = set()
         
-        # 查找相似文章
-        for j in range(i + 1, len(df)):
-            if j in processed:
+        # 在该类别内进行相似度检查
+        for i in range(len(category_df)):
+            original_i = original_indices[i]
+            if original_i in processed:
                 continue
             
-            if are_similar_articles(
-                df.iloc[i],
-                df.iloc[j],
-                threshold=similarity_threshold,
-                use_api=use_api
-            ):
-                df.loc[j, 'GroupID'] = group_id
-                processed.add(j)
-        
-        group_id += 1
+            # 创建新组
+            df.loc[original_i, 'GroupID'] = group_id
+            processed.add(original_i)
+            
+            # 查找相似文章（只在该类别内）
+            for j in range(i + 1, len(category_df)):
+                original_j = original_indices[j]
+                if original_j in processed:
+                    continue
+                
+                if are_similar_articles(
+                    category_df.iloc[i],
+                    category_df.iloc[j],
+                    threshold=similarity_threshold,
+                    use_api=use_api
+                ):
+                    df.loc[original_j, 'GroupID'] = group_id
+                    processed.add(original_j)
+            
+            group_id += 1
     
     return df
 
 def generate_trending_rank(df: pd.DataFrame, top_n: int = 3, min_sources: int = 3) -> pd.DataFrame:
     """
-    生成热点榜
+    生成热点榜（按类别分组显示）
     
     Args:
         df: 包含 GroupID 列的 DataFrame
@@ -266,7 +295,7 @@ def generate_trending_rank(df: pd.DataFrame, top_n: int = 3, min_sources: int = 
     if df.empty or 'GroupID' not in df.columns:
         return pd.DataFrame()
     
-    # 按 GroupID 和 Category 分组
+    # 按类别和 GroupID 分组
     trending_news = []
     
     for category in df['Category'].unique():
@@ -274,9 +303,12 @@ def generate_trending_rank(df: pd.DataFrame, top_n: int = 3, min_sources: int = 
         
         # 按 GroupID 分组
         for group_id in category_df['GroupID'].unique():
+            if group_id == -1:  # 跳过未分组的文章
+                continue
+            
             group_df = category_df[category_df['GroupID'] == group_id]
             
-            # 提高门槛：至少需要 min_sources 家媒体报道
+            # 至少需要 min_sources 家媒体报道
             if len(group_df) < min_sources:
                 continue
             

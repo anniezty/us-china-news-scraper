@@ -189,6 +189,141 @@ def render_results(df: pd.DataFrame, start_date, end_date):
 
     st.markdown("---")
     st.markdown("### 📰 Articles")
+    
+    # Add classification feedback mechanism (improved with category dropdown)
+    if 'classification_feedback' not in st.session_state:
+        st.session_state.classification_feedback = {}
+    
+    # Load all available categories
+    try:
+        import yaml
+        with open('categories_en.yaml', 'r') as f:
+            categories_config = yaml.safe_load(f)
+        all_categories = list(categories_config.get('categories', {}).keys()) + ["Uncategorized"]
+    except:
+        # Fallback: get categories from dataframe
+        all_categories = sorted(df['Category'].unique().tolist()) if 'Category' in df.columns else ["Uncategorized"]
+    
+    # Show feedback option in a collapsible section (expanded by default for visibility)
+    with st.expander("💬 Provide Classification Feedback (Help improve accuracy)", expanded=True):
+        st.markdown("**How it works**: If you find a misclassified article, mark it as incorrect and select the correct category. This feedback will be used to improve future classifications by adding it to the AI's training examples.")
+        st.markdown("---")
+        
+        selected_idx = st.selectbox(
+            "Select an article to provide feedback:",
+            options=range(len(df)),
+            format_func=lambda x: f"{df.iloc[x].get('Headline', 'No title')[:60]}... | Current: {df.iloc[x].get('Category', 'N/A')}"
+        )
+        
+        if selected_idx is not None:
+            selected_row = df.iloc[selected_idx]
+            feedback_key = selected_row.get('URL', f"idx_{selected_idx}")
+            
+            st.markdown(f"**Headline**: {selected_row.get('Headline', 'N/A')}")
+            st.markdown(f"**Summary**: {selected_row.get('Nut Graph', 'N/A')[:200]}...")
+            st.markdown(f"**Current Category**: `{selected_row.get('Category', 'N/A')}`")
+            
+            # Check if feedback already exists
+            feedback_file = "classification_feedback.json"
+            existing_feedback = {}
+            try:
+                import json
+                if os.path.exists(feedback_file):
+                    with open(feedback_file, 'r') as f:
+                        existing_feedback = json.load(f)
+            except:
+                pass
+            
+            feedback_status = existing_feedback.get(feedback_key, {}).get('status', None)
+            
+            if feedback_status:
+                st.info(f"✅ Feedback already recorded: {feedback_status}")
+                if feedback_status == "incorrect":
+                    correct_cat = existing_feedback.get(feedback_key, {}).get('correct_category', 'N/A')
+                    st.info(f"📝 Correct category: `{correct_cat}`")
+            else:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Correct", key=f"correct_feedback_{selected_idx}"):
+                        # Save feedback
+                        try:
+                            import json
+                            if not os.path.exists(feedback_file):
+                                feedback_data = {}
+                            else:
+                                with open(feedback_file, 'r') as f:
+                                    feedback_data = json.load(f)
+                            
+                            feedback_data[feedback_key] = {
+                                'status': 'correct',
+                                'headline': selected_row.get('Headline', ''),
+                                'summary': selected_row.get('Nut Graph', ''),
+                                'current_category': selected_row.get('Category', ''),
+                                'reason': '',  # 正确分类不需要原因
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            
+                            with open(feedback_file, 'w') as f:
+                                json.dump(feedback_data, f, indent=2)
+                            
+                            st.success("✅ Thank you! Feedback recorded. This will help improve future classifications.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error saving feedback: {e}")
+                
+                with col2:
+                    if st.button("❌ Incorrect", key=f"incorrect_feedback_{selected_idx}"):
+                        st.session_state.classification_feedback[feedback_key] = "incorrect"
+                        st.warning("Please select the correct category below.")
+                        st.rerun()
+                
+                if st.session_state.classification_feedback.get(feedback_key) == "incorrect":
+                    st.markdown("---")
+                    correct_category = st.selectbox(
+                        "What should the correct category be?",
+                        options=all_categories,
+                        key=f"correct_cat_select_{selected_idx}",
+                        index=all_categories.index(selected_row.get('Category', 'Uncategorized')) if selected_row.get('Category', 'Uncategorized') in all_categories else 0
+                    )
+                    
+                    # 添加"原因"输入框（可选）
+                    reason = st.text_area(
+                        "Why is this the correct category? (Optional - helps AI learn better)",
+                        key=f"reason_input_{selected_idx}",
+                        placeholder="例如：这是中国接待外国领导人的国事访问，属于双边外交关系，应该归类到多边主义类别",
+                        height=100
+                    )
+                    
+                    if st.button("💾 Save Feedback", key=f"save_feedback_{selected_idx}"):
+                        # Save feedback with correct category
+                        try:
+                            import json
+                            if not os.path.exists(feedback_file):
+                                feedback_data = {}
+                            else:
+                                with open(feedback_file, 'r') as f:
+                                    feedback_data = json.load(f)
+                            
+                            feedback_data[feedback_key] = {
+                                'status': 'incorrect',
+                                'headline': selected_row.get('Headline', ''),
+                                'summary': selected_row.get('Nut Graph', ''),
+                                'current_category': selected_row.get('Category', ''),
+                                'correct_category': correct_category,
+                                'reason': reason.strip() if reason else '',  # 添加原因字段
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            
+                            with open(feedback_file, 'w') as f:
+                                json.dump(feedback_data, f, indent=2)
+                            
+                            st.success(f"✅ Feedback saved! This article should be `{correct_category}`. This will be used to improve future classifications.")
+                            st.info("💡 **Next time you classify articles, this feedback will be included in the AI's training examples.**")
+                            del st.session_state.classification_feedback[feedback_key]
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error saving feedback: {e}")
+    
     st.dataframe(df, use_container_width=True, height=600)
 
     st.markdown("---")
@@ -201,10 +336,10 @@ def render_results(df: pd.DataFrame, start_date, end_date):
         with st.spinner("Analyzing news trends..."):
             df_with_groups = group_similar_news(
                 df.copy(),
-                similarity_threshold=0.6,
+                similarity_threshold=0.55,  # Slightly higher threshold for better grouping (was 0.5)
                 use_api=use_api_classification
             )
-        trending_df = generate_trending_rank(df_with_groups, top_n=3)
+        trending_df = generate_trending_rank(df_with_groups, top_n=3, min_sources=2)  # Keep at 2 sources for now
 
         if not trending_df.empty:
             categories = sorted(trending_df["Category"].unique())
