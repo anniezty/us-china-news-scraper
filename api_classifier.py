@@ -591,7 +591,13 @@ def is_api_available() -> bool:
                 api_enabled = classifier_enabled.lower() == "true"
             else:
                 api_enabled = bool(classifier_enabled)
-    except:
+            
+            # Debug: 打印配置状态（输出到 stderr，可在 Streamlit Cloud 日志中查看）
+            import sys
+            print(f"🔍 is_api_available: classifier_enabled = {classifier_enabled} (type: {type(classifier_enabled).__name__}), api_enabled = {api_enabled}", file=sys.stderr, flush=True)
+    except Exception as e:
+        import sys
+        print(f"🔍 is_api_available: Error reading Streamlit secrets: {e}", file=sys.stderr, flush=True)
         pass
     
     # 如果 Streamlit secrets 中没有，则从环境变量读取
@@ -599,6 +605,8 @@ def is_api_available() -> bool:
         api_enabled = os.getenv("API_CLASSIFIER_ENABLED", "false").lower() == "true"
     
     if not api_enabled:
+        import sys
+        print(f"🔍 is_api_available: API not enabled (classifier_enabled = False)", file=sys.stderr, flush=True)
         return False
     
     # 检查 API key 是否存在
@@ -619,7 +627,10 @@ def is_api_available() -> bool:
                     api_key = st.secrets.get("api", {}).get("openai_api_key")
             except:
                 pass
-        return bool(api_key)
+        result = bool(api_key)
+        import sys
+        print(f"🔍 is_api_available: OpenAI API key exists = {result}, length = {len(api_key) if api_key else 0}", file=sys.stderr, flush=True)
+        return result
     elif provider == "anthropic":
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
