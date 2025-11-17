@@ -494,9 +494,11 @@ Return ONLY the category name, nothing else. If unsure or if it's company-level 
         elif result == "Uncategorized":
             return "Uncategorized"
         else:
-            # Debug: Log invalid result
+            # Debug: Log invalid result with more details
             import sys
             print(f"⚠️ API returned invalid category: '{result}' (not in categories list)", file=sys.stderr, flush=True)
+            print(f"   Available categories: {categories[:5]}... (showing first 5)", file=sys.stderr, flush=True)
+            print(f"   Full result from API: '{result}' (type: {type(result).__name__}, length: {len(result) if result else 0})", file=sys.stderr, flush=True)
             return None
             
     except ImportError:

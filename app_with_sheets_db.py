@@ -928,8 +928,11 @@ elif run:
                                     else:
                                         # API returned None - log this for debugging
                                         if not hasattr(assign_category, '_api_returned_none_warned'):
-                                            st.warning("⚠️ API classification returned None (check logs for details). Falling back to keyword classification.")
+                                            st.warning("⚠️ API classification returned None. Possible reasons: API key issue, budget limit, invalid response, or API error. Check Streamlit Cloud logs (Settings → Logs → stderr) for details. Falling back to keyword classification.")
                                             assign_category._api_returned_none_warned = True
+                                            # 打印更详细的调试信息
+                                            print(f"🔍 API returned None for article: '{row.get('Headline', '')[:50]}...'", file=sys.stderr, flush=True)
+                                            print(f"   Check logs above for specific error (API key, budget, invalid category, etc.)", file=sys.stderr, flush=True)
                                     break  # Exit retry loop (even if api_cat is None)
                                 except Exception as e:
                                     if "rate_limit" in str(e).lower() and attempt < max_retries - 1:
