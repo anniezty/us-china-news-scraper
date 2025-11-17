@@ -893,7 +893,7 @@ elif run:
                                 assign_category._api_unavailable_warned = True
                                 # 打印详细的调试信息到 stderr
                                 try:
-                                    import streamlit as st
+                                    # 注意：不要在这里重新导入 st，使用文件顶部已导入的 st
                                     if hasattr(st, "secrets") and "api" in st.secrets:
                                         api_config = st.secrets.get("api", {})
                                         classifier_enabled = api_config.get("classifier_enabled", None)
