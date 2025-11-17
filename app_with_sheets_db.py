@@ -259,7 +259,7 @@ def render_results(df: pd.DataFrame, start_date, end_date):
                                 'headline': selected_row.get('Headline', ''),
                                 'summary': selected_row.get('Nut Graph', ''),
                                 'current_category': selected_row.get('Category', ''),
-                                'reason': '',  # 正确分类不需要原因
+                                'reason': '',  # Correct classification doesn't need a reason
                                 'timestamp': datetime.now().isoformat()
                             }
                             
@@ -290,7 +290,7 @@ def render_results(df: pd.DataFrame, start_date, end_date):
                     reason = st.text_area(
                         "Why is this the correct category? (Optional - helps AI learn better)",
                         key=f"reason_input_{selected_idx}",
-                        placeholder="例如：这是中国接待外国领导人的国事访问，属于双边外交关系，应该归类到多边主义类别",
+                        placeholder="Example: This is a state visit where China hosts a foreign leader, involving bilateral diplomatic relations, should be categorized as Multilateralism",
                         height=100
                     )
                     
