@@ -46,7 +46,7 @@ def _save_usage(data: dict) -> None:
 def _get_budget_config() -> tuple[float, float]:
     """Get budget and cost per call from environment or Streamlit secrets."""
     budget = 0.0
-    cost_per_call = 0.001  # Default: $0.001 per call
+    cost_per_call = 0.0003  # Default: $0.0003 per call (based on $0.02/66 articles)
     
     # Try Streamlit secrets first
     try:
@@ -79,8 +79,8 @@ def _get_budget_config() -> tuple[float, float]:
             except ValueError:
                 pass
     
-    if cost_per_call == 0.001:
-        cost_str = os.getenv("API_COST_PER_CALL_USD", "0.001").strip()
+    if cost_per_call == 0.0003:
+        cost_str = os.getenv("API_COST_PER_CALL_USD", "0.0003").strip()
         if cost_str:
             try:
                 cost_per_call = float(cost_str)
@@ -88,7 +88,7 @@ def _get_budget_config() -> tuple[float, float]:
                 pass
     
     if cost_per_call <= 0:
-        cost_per_call = 0.001
+        cost_per_call = 0.0003
     
     return budget, cost_per_call
 
@@ -119,6 +119,7 @@ def get_budget_status() -> dict:
     
     return {
         "budget": budget,
+        "daily_budget": budget,  # Alias for clarity in UI
         "cost_per_call": cost_per_call,
         "calls_today": calls,
         "cost_today": current_cost,

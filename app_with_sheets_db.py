@@ -469,7 +469,15 @@ if use_api_classification:
             budget_status = get_budget_status()
             
             if budget_status["has_budget"]:
-                st.info(f"💰 API Budget Status: ${budget_status['cost_today']:.3f} used today (${budget_status['remaining']:.3f} remaining)")
+                # Calculate weekly budget (daily * 7)
+                weekly_budget = budget_status['daily_budget'] * 7
+                weekly_used = budget_status['cost_today'] * 7  # Approximate weekly usage
+                weekly_remaining = weekly_budget - weekly_used
+                
+                st.info(f"💰 **API Budget Status**\n"
+                       f"- Today: ${budget_status['cost_today']:.3f} used / ${budget_status['daily_budget']:.3f} budget (${budget_status['remaining']:.3f} remaining)\n"
+                       f"- Weekly (est.): ~${weekly_used:.3f} used / ${weekly_budget:.3f} budget (~${weekly_remaining:.3f} remaining)\n"
+                       f"- Cost per article: ${budget_status.get('cost_per_call', 0.0003):.4f}")
             else:
                 st.warning("⚠️ No daily budget limit set. Consider setting `daily_budget_usd` in secrets.toml to avoid unexpected costs.")
         else:
@@ -538,7 +546,7 @@ spreadsheet_id = None
 if HAS_SHEETS:
     st.markdown("---")
     st.markdown("### 📊 Data Source")
-    use_sheets_db = st.checkbox("Read historical data from Google Sheets (NYT, SCMP, Reuters, Financial Times,Washington Post, and Associated Press)", value=True)
+    use_sheets_db = st.checkbox("Read historical data from scheduled,auto-populated Google Sheets (NYT, SCMP, Reuters, Financial Times, Washington Post, and AP)", value=True)
     if use_sheets_db:
         # Try to get Google Sheets ID from multiple sources
         default_sheets_id = ""
@@ -638,7 +646,7 @@ elif run:
                     # Try reading multiple possible sheets
                     # Simplified: read all data, then filter by date
                     # Can be optimized to only read relevant sheets
-                    priority_sources = ["nytimes.com", "scmp.com", "reuters.com", "ft.com", "apnews.com"]
+                    priority_sources = ["nytimes.com", "scmp.com", "reuters.com", "ft.com", "apnews.com", "washingtonpost.com"]
                     
                     # Try to read all sheets starting with "Week", merge data
                     try:
@@ -762,9 +770,9 @@ elif run:
                     st.warning(f"⚠️ Google Sheets read failed: {e}")
             
             # 2. Real-time RSS scraping from all sources
-            status_text.text(f"🌐 Scraping from {len(selected_sources)} RSS feeds...")
+            status_text.text(f"🌐 Scraping from {len(selected_sources)} real-time sources...")
             progress_bar.progress(30)
-            st.info("🌐 Scraping from RSS feeds in real-time...")
+            st.info("🌐 Scraping in real-time...")
             rss_df = collect_rss(
                 "config_en.yaml", 
                 start_date.isoformat(), 
@@ -818,16 +826,16 @@ elif run:
                 # Debug: 显示详细的合并信息
                 if 'Outlet' in df.columns:
                     outlet_counts = df['Outlet'].value_counts()
-                    st.info(f"📊 Merge details: Google Sheets ({sheets_count} records) + RSS ({rss_count} records) = {before_dedup} records after merge → {after_dedup} records after deduplication (removed {duplicates_removed} duplicates)\n"
+                    st.info(f"📊 Merge details: Google Sheets ({sheets_count} records) + real-time ({rss_count} records) = {before_dedup} records after merge → {after_dedup} records after deduplication (removed {duplicates_removed} duplicates)\n"
                            f"   Outlet distribution: {len(outlet_counts)} Outlets")
                 
-                st.success(f"✅ Merge complete: Google Sheets ({sheets_count} records) + RSS ({rss_count} records) = Total {after_dedup} records (after deduplication)")
+                st.success(f"✅ Merge complete: Google Sheets ({sheets_count} records) + real-time ({rss_count} records) = Total {after_dedup} records (after deduplication)")
             elif not sheets_df.empty:
                 df = sheets_df
                 st.success(f"✅ Using Google Sheets data: {len(df)} records")
             elif not rss_df.empty:
                 df = rss_df
-                st.success(f"✅ Using RSS data: {len(rss_df)} records")
+                st.success(f"✅ Using real-time data: {len(rss_df)} records")
             else:
                 df = pd.DataFrame()
                 st.warning("No articles found")
@@ -845,7 +853,14 @@ elif run:
                             st.error(f"❌ Budget insufficient! Estimated cost: ${cost_estimate['estimated_cost']:.3f}, Remaining: ${cost_estimate['remaining_budget']:.3f}")
                             st.stop()
                         else:
-                            st.info(f"💰 Estimated API cost: ${cost_estimate['estimated_cost']:.3f} for {len(df)} articles (${cost_estimate['remaining_budget']:.3f} remaining)")
+                            # Calculate weekly estimates
+                            weekly_budget = budget_status['daily_budget'] * 7
+                            cost_per_article = cost_estimate['estimated_cost'] / len(df) if len(df) > 0 else 0
+                            
+                            st.info(f"💰 **Estimated API Cost**\n"
+                                   f"- This batch: ${cost_estimate['estimated_cost']:.3f} for {len(df)} articles (${cost_per_article:.4f} per article)\n"
+                                   f"- Remaining today: ${cost_estimate['remaining_budget']:.3f} / ${budget_status['daily_budget']:.3f}\n"
+                                   f"- Weekly budget: ${weekly_budget:.3f} (${budget_status['daily_budget']:.3f}/day × 7)")
                     else:
                         st.warning(f"⚠️ Estimated API cost: ${cost_estimate['estimated_cost']:.3f} for {len(df)} articles (no budget limit set)")
                 except:
