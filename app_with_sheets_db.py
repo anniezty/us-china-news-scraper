@@ -444,7 +444,7 @@ def render_results(df: pd.DataFrame, start_date, end_date):
 all_sources = list(CFG.get("rss_feeds", {}).keys())
 col1, col2 = st.columns([1,1])
 with col1:
-    start_date = st.date_input("Start date", value=date.today() - pd.Timedelta(days=7), min_value=date(2000,1,1), max_value=date.today())
+    start_date = st.date_input("Start date", value=date.today(), min_value=date(2000,1,1), max_value=date.today())
 with col2:
     end_date = st.date_input("End date (<= today)", value=date.today(), min_value=date(2000,1,1), max_value=date.today())
 selected_sources = st.multiselect("Sources (whitelist)", options=all_sources, default=all_sources)
@@ -585,7 +585,7 @@ if not run and st.session_state.df_result is not None:
         start_date = params['start_date']
         end_date = params['end_date']
     else:
-        start_date = date.today() - pd.Timedelta(days=7)
+        start_date = date.today()
         end_date = date.today()
     
     render_results(df, start_date, end_date)
@@ -1006,7 +1006,7 @@ elif False and st.session_state.df_result is not None and not run:
         start_date = params['start_date']
         end_date = params['end_date']
     else:
-        start_date = date.today() - pd.Timedelta(days=7)
+        start_date = date.today()
         end_date = date.today()
     
     # Display summary and data (same as above)
