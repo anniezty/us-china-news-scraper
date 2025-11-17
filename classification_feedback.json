@@ -1,0 +1,35 @@
+{
+  "https://www.wsj.com/world/asia/china-tells-citizens-to-avoid-japan-as-taiwan-spat-deepens-714f3faf": {
+    "status": "incorrect",
+    "headline": "China Tells Citizens to Avoid Japan as Taiwan Spat Deepens",
+    "summary": "Beijing is furious with the Japanese prime minister after she said Japan would defend itself if China moved to seize the island. World",
+    "current_category": "Taiwan",
+    "correct_category": "Geopolitics",
+    "reason": "",
+    "timestamp": "2025-11-16T23:15:37.693682"
+  },
+  "https://foreignpolicy.com/2025/11/14/tariffs-trump-trade-deals-talks-us-china-canada-mexico-eu-economy/": {
+    "status": "correct",
+    "headline": "The Trump Trade Tracker",
+    "summary": "Switzerland cuts a deal\u2014plus the latest global picture on Trump\u2019s tariff regime.",
+    "current_category": "Trade & Commerce",
+    "reason": "",
+    "timestamp": "2025-11-17T10:14:50.638960"
+  },
+  "https://foreignpolicy.com/2025/11/17/myanmar-conscription-reshape-conflict-junta-china-thailand/": {
+    "status": "correct",
+    "headline": "How Conscription Reshaped Myanmar\u2019s Conflict",
+    "summary": "Forced recruitment has helped reverse momentum back in the military\u2019s favor, even as it pushes many young men to flee.",
+    "current_category": "Uncategorized",
+    "reason": "",
+    "timestamp": "2025-11-17T12:25:59.877645"
+  },
+  "https://foreignpolicy.com/2025/11/12/us-china-tungsten-critical-mineral-supply-chain/": {
+    "status": "correct",
+    "headline": "Tungsten Is the Next Flash Point in the Resource Race",
+    "summary": "Alarmed by Beijing\u2019s rare earths chokehold, Washington is scrambling to plug other potential vulnerabilities.",
+    "current_category": "Critical Minerals",
+    "reason": "",
+    "timestamp": "2025-11-17T12:28:00.338002"
+  }
+}

@@ -1,70 +1,30 @@
-# Streamlit Cloud API 无法使用问题排查
+# Streamlit Cloud API 配置故障排除指南
 
-## 🔍 问题
+## 问题：勾选了 API 分类，但没有启动 API
 
-**本地可以使用 API，但线上（Streamlit Cloud）无法使用**
+### 可能的原因
 
-## 📝 可能的原因
+1. **Streamlit Cloud Secrets 配置不正确**
+   - `classifier_enabled` 未设置为 `true`
+   - API key 未正确配置
+   - Secrets 格式错误
 
-### 1. Streamlit Cloud Secrets 未正确配置（最可能）
+2. **Secrets 未正确保存或应用**
+   - 保存后未重新部署
+   - Secrets 格式不符合 TOML 规范
 
-**检查步骤**：
+3. **API key 格式问题**
+   - API key 不完整或无效
+   - 使用了错误的 key（例如使用了本地环境的 key）
+
+## 诊断步骤
+
+### 1. 检查 Streamlit Cloud Secrets 配置
+
 1. 登录 Streamlit Cloud: https://share.streamlit.io/
-2. 进入你的应用
-3. 点击 "Settings" → "Secrets"
-4. 检查是否有 `[api]` 部分
-5. 检查 `classifier_enabled` 是否为 `true`（不是字符串 `"true"`）
-6. 检查 `openai_api_key` 是否正确
+2. 进入你的应用 → **Settings** → **Secrets**
+3. 确认以下配置存在且正确：
 
-**正确的格式**：
-```toml
-[api]
-classifier_enabled = true
-provider = "openai"
-openai_api_key = "sk-你的-API-key"
-openai_model = "gpt-4o-mini"
-daily_budget_usd = 1.0
-cost_per_call_usd = 0.001
-```
-
-**常见错误**：
-- ❌ `classifier_enabled = "true"` （字符串，应该是布尔值 `true`）
-- ❌ 缺少 `openai_api_key`
-- ❌ API key 格式错误（缺少 `sk-` 前缀）
-
-### 2. Streamlit Cloud 未重新部署
-
-**检查步骤**：
-1. 确认代码已推送到 GitHub
-2. 检查 Streamlit Cloud 是否自动部署
-3. 如果没有自动部署，手动触发部署
-
-### 3. API key 权限问题
-
-**检查步骤**：
-1. 确认 API key 是否有效
-2. 确认 API key 是否有足够的配额
-3. 确认 API key 是否被限制（某些企业账号可能有 IP 限制）
-
-### 4. 环境变量优先级问题
-
-**代码逻辑**：
-- 优先从 Streamlit Secrets 读取
-- 如果 Secrets 中没有，从环境变量读取
-
-**可能的问题**：
-- Streamlit Cloud 的环境变量可能覆盖了 Secrets
-- 需要检查 Streamlit Cloud 的环境变量设置
-
-## 🔧 诊断步骤
-
-### 步骤 1: 检查 Streamlit Cloud Secrets
-
-1. 登录 Streamlit Cloud
-2. 进入应用设置
-3. 检查 Secrets 配置
-
-**正确的配置示例**：
 ```toml
 [api]
 classifier_enabled = true
@@ -75,54 +35,119 @@ daily_budget_usd = 1.0
 cost_per_call_usd = 0.001
 ```
 
-### 步骤 2: 检查应用日志
+**重要提示**：
+- `classifier_enabled` 必须是 `true`（布尔值）或 `"true"`（字符串）
+- `openai_api_key` 必须以 `sk-` 开头
+- 确保没有多余的空格或引号
 
-1. 在 Streamlit Cloud 中，点击 "Settings" → "Logs"
-2. 查看 `stderr` 日志
-3. 查找以下信息：
-   - `🔍 is_api_available() returned: True/False`
-   - `❌ API key not found`
-   - `❌ API not available`
+### 2. 检查应用中的调试信息
 
-### 步骤 3: 添加调试信息
+当你在 Streamlit Cloud 上勾选 "🤖 Use API Classification (OpenAI)" 时：
 
-在 `app_with_sheets_db.py` 中添加调试信息，显示 API 配置状态。
+1. **如果 API 可用**：
+   - 会显示 "💰 API Budget Status: $X.XXX used today ($X.XXX remaining)"
+   - 分类时会显示 "✅ Using API classification (95-98% accuracy)"
 
-## 💡 快速修复
+2. **如果 API 不可用**：
+   - 会显示 "🔍 API Configuration Debug Info" 展开框
+   - 显示详细的配置状态（`classifier_enabled`、`openai_api_key` 等）
 
-### 方法 1: 重新配置 Streamlit Cloud Secrets
+### 3. 检查 Streamlit Cloud 日志
 
-1. 登录 Streamlit Cloud
-2. 进入应用 → Settings → Secrets
-3. 删除旧的 `[api]` 配置
-4. 添加新的配置（使用正确的格式）
-5. 保存并重新部署
+1. 进入应用 → **Settings** → **Logs**
+2. 查看 `stderr` 日志，查找以下调试信息：
+   - `🔍 assign_category() called with use_api_classification=True`
+   - `🔍 is_api_available() check in assign_category: True/False`
+   - `🔍 Debug: classifier_enabled = ...`
+   - `🔍 Debug: openai_api_key exists = ...`
 
-### 方法 2: 检查代码中的 API 检查逻辑
+### 4. 常见错误和解决方案
 
-确保 `is_api_available()` 函数能正确读取 Streamlit Secrets。
+#### 错误 1: `classifier_enabled` 未找到或为 false
 
-## 📝 常见问题
+**症状**：
+- 调试信息显示：`❌ classifier_enabled not found in secrets` 或 `❌ classifier_enabled is false`
 
-### Q: 为什么本地可以，线上不行？
+**解决方案**：
+```toml
+[api]
+classifier_enabled = true  # 确保是 true（不是 "true" 字符串，除非代码支持）
+```
 
-**A**: 可能的原因：
-1. 本地使用 `.streamlit/secrets.toml`，线上使用 Streamlit Cloud Secrets
-2. 配置格式不同（布尔值 vs 字符串）
-3. Streamlit Cloud Secrets 未正确配置
+#### 错误 2: `openai_api_key` 未找到或无效
 
-### Q: 如何确认 API 是否可用？
+**症状**：
+- 调试信息显示：`❌ openai_api_key is empty or not found` 或 `❌ openai_api_key seems invalid (too short)`
 
-**A**: 在 Streamlit UI 中：
-1. 勾选 "Use API Classification"
-2. 查看是否有错误信息
-3. 查看日志中的调试信息
+**解决方案**：
+1. 确认 API key 已正确复制（包括 `sk-proj-` 前缀）
+2. 确认 API key 在 OpenAI 门户中仍然有效
+3. 检查是否有多余的空格或换行符
 
-### Q: 如何查看 Streamlit Cloud 日志？
+#### 错误 3: Secrets 格式错误
 
-**A**: 
-1. 登录 Streamlit Cloud
-2. 进入应用
-3. 点击 "Settings" → "Logs"
-4. 查看 `stderr` 日志（包含调试信息）
+**症状**：
+- 应用无法读取 secrets
+- 调试信息显示：`❌ No [api] section found in Streamlit secrets`
 
+**解决方案**：
+1. 确保使用正确的 TOML 格式
+2. 确保 `[api]` 部分在 secrets 文件中
+3. 检查是否有语法错误（缺少引号、括号等）
+
+### 5. 验证配置的步骤
+
+1. **保存 Secrets**：
+   - 在 Streamlit Cloud Secrets 中保存配置
+   - 等待应用自动重新部署（或手动触发重新部署）
+
+2. **测试 API 可用性**：
+   - 勾选 "🤖 Use API Classification (OpenAI)"
+   - 查看是否显示预算状态（表示 API 可用）
+   - 如果显示错误，查看调试信息
+
+3. **运行分类测试**：
+   - 选择少量文章（例如 5-10 篇）
+   - 点击 "Generate & Export"
+   - 查看是否显示 "✅ Using API classification"
+   - 检查日志中的 API 调用记录
+
+### 6. 手动测试 API 配置
+
+如果问题仍然存在，可以在 Streamlit Cloud 的 Python 控制台中测试：
+
+```python
+import streamlit as st
+
+# 检查 secrets
+if hasattr(st, "secrets") and "api" in st.secrets:
+    api_config = st.secrets.get("api", {})
+    print(f"classifier_enabled: {api_config.get('classifier_enabled')}")
+    print(f"openai_api_key exists: {bool(api_config.get('openai_api_key'))}")
+    print(f"openai_api_key length: {len(api_config.get('openai_api_key', ''))}")
+else:
+    print("No [api] section in secrets")
+```
+
+### 7. 联系支持
+
+如果以上步骤都无法解决问题，请提供以下信息：
+
+1. Streamlit Cloud 日志（特别是 `stderr` 部分）
+2. Secrets 配置（**隐藏 API key**）
+3. 调试信息截图
+4. 应用 URL
+
+## 预防措施
+
+1. **使用模板文件**：
+   - 使用 `streamlit_secrets_for_cloud.toml` 作为模板
+   - 确保格式正确后再复制到 Streamlit Cloud
+
+2. **测试本地配置**：
+   - 先在本地 `.streamlit/secrets.toml` 中测试
+   - 确认无误后再部署到 Streamlit Cloud
+
+3. **定期检查 API key**：
+   - 确认 API key 在 OpenAI 门户中仍然有效
+   - 检查是否有使用限制或配额问题

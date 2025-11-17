@@ -885,6 +885,25 @@ elif run:
                         api_available_check = is_api_available()
                         print(f"🔍 is_api_available() check in assign_category: {api_available_check}", file=sys.stderr, flush=True)
                         
+                        # 如果 API 不可用，显示详细错误信息（仅第一次）
+                        if not api_available_check:
+                            if not hasattr(assign_category, '_api_unavailable_warned'):
+                                st.error("❌ API classification is enabled but API is not available. Please check the API configuration debug info above.")
+                                assign_category._api_unavailable_warned = True
+                                # 打印详细的调试信息到 stderr
+                                try:
+                                    import streamlit as st
+                                    if hasattr(st, "secrets") and "api" in st.secrets:
+                                        api_config = st.secrets.get("api", {})
+                                        classifier_enabled = api_config.get("classifier_enabled", None)
+                                        openai_api_key = api_config.get("openai_api_key", None)
+                                        print(f"🔍 Debug: classifier_enabled = {classifier_enabled} (type: {type(classifier_enabled)})", file=sys.stderr, flush=True)
+                                        print(f"🔍 Debug: openai_api_key exists = {bool(openai_api_key)}, length = {len(openai_api_key) if openai_api_key else 0}", file=sys.stderr, flush=True)
+                                    else:
+                                        print(f"🔍 Debug: No [api] section in Streamlit secrets", file=sys.stderr, flush=True)
+                                except Exception as e:
+                                    print(f"🔍 Debug: Error checking secrets: {e}", file=sys.stderr, flush=True)
+                        
                         if api_available_check:
                             category_list = [cat for cat, _ in compiled] + ["Uncategorized"]
                             
