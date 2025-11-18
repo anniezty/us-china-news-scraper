@@ -38,6 +38,11 @@ def check_test_access():
         if hasattr(st, 'secrets'):
             if 'test_mode' in st.secrets:
                 test_mode_config = st.secrets.get('test_mode', {})
+                
+                # Debug: 显示实际读取到的配置（帮助诊断问题）
+                if os.getenv("DEBUG", "").lower() == "true" or (test_mode_config.get('deadline', '') and '2025-11-17' in str(test_mode_config.get('deadline', ''))):
+                    st.sidebar.warning(f"🔍 Secrets Debug:\n- test_mode exists: True\n- Raw config: {test_mode_config}\n- deadline value: '{test_mode_config.get('deadline', 'NOT FOUND')}'")
+                
                 # 处理 enabled：支持布尔值和字符串 "true"/"false"
                 enabled_val = test_mode_config.get('enabled', test_enabled)
                 if isinstance(enabled_val, str):
@@ -46,10 +51,17 @@ def check_test_access():
                     test_enabled = bool(enabled_val)
                 test_password = test_mode_config.get('password', test_password)
                 test_deadline = test_mode_config.get('deadline', test_deadline)
+            else:
+                # Debug: test_mode 不存在
+                if os.getenv("DEBUG", "").lower() == "true":
+                    st.sidebar.warning(f"🔍 Secrets Debug: 'test_mode' not found in st.secrets. Available keys: {list(st.secrets.keys()) if hasattr(st, 'secrets') else 'N/A'}")
     except Exception as e:
-        # 调试信息（仅在开发环境显示）
+        # 调试信息（显示错误）
+        error_msg = f"⚠️ Test mode config error: {e}"
+        st.sidebar.error(error_msg)
         if os.getenv("DEBUG", "").lower() == "true":
-            st.warning(f"⚠️ Test mode config error: {e}")
+            import traceback
+            st.sidebar.code(traceback.format_exc())
         pass
     
     # 如果测试模式未启用，直接允许访问
