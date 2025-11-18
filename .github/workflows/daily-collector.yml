@@ -40,14 +40,3 @@ jobs:
         PRIORITY_SOURCES_LIST: ${{ secrets.PRIORITY_SOURCES_LIST }}
       run: |
         python daily_collector_to_sheets.py
-    
-    - name: Upload logs (if any)
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: collector-logs
-        path: |
-          logs/*.log
-          *.log
-        if-no-files-found: ignore
-
