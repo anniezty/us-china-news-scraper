@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 import pandas as pd
 import yaml, io
 import sys
@@ -111,7 +111,7 @@ def check_test_access():
                         f"**Configuration:** `deadline = \"{test_deadline}\"`\n\n"
                         f"**Parsed deadline:** {deadline_local_str} UTC\n"
                         f"**Current UTC time:** {now_utc.strftime('%Y-%m-%d %H:%M')} UTC\n\n"
-                        f"**To fix:** Update `deadline` in Streamlit Cloud Secrets to `\"2025-11-18 22:00\"` (for EST 5pm) or `\"2025-11-18 17:00\"` (for UTC 5pm)"
+                        f"**Note:** Deadline is in UTC timezone. EST 5pm = UTC 10pm (EST is UTC-5)"
                     )
                     return False, error_msg
             else:
@@ -504,9 +504,14 @@ def render_results(df: pd.DataFrame, start_date, end_date):
 all_sources = list(CFG.get("rss_feeds", {}).keys())
 col1, col2 = st.columns([1,1])
 with col1:
-    start_date = st.date_input("Start date", value=date.today(), min_value=date(2000,1,1), max_value=date.today())
+    # Default to yesterday (UTC) to match user's local "today" in EST/EDT
+    # Streamlit Cloud uses UTC, so when it's 11/17 in EST, UTC might be 11/18
+    # Using UTC's "yesterday" as default ensures we get EST's "today"
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    start_date = st.date_input("Start date", value=yesterday, min_value=date(2000,1,1), max_value=today)
 with col2:
-    end_date = st.date_input("End date (<= today)", value=date.today(), min_value=date(2000,1,1), max_value=date.today())
+    end_date = st.date_input("End date (<= today)", value=yesterday, min_value=date(2000,1,1), max_value=today)
 selected_sources = st.multiselect("Sources (whitelist)", options=all_sources, default=all_sources)
 
 # API Classification toggle
