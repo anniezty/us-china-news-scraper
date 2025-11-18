@@ -73,9 +73,21 @@ def check_test_access():
                 if len(test_deadline.split()) == 1:  # 只有日期，没有时间
                     deadline_dt = deadline_dt.replace(hour=23, minute=59, second=59)
                 
-                now = datetime.now()
-                if now > deadline_dt:
-                    return False, f"⚠️ Testing stage has ended (deadline: {deadline_dt.strftime('%Y-%m-%d %H:%M')})"
+                # 使用 UTC 时间进行比较（Streamlit Cloud 使用 UTC）
+                from datetime import timezone
+                # 始终使用 UTC 时间进行比较
+                now_utc = datetime.now(timezone.utc)
+                # 将 deadline_dt 视为 UTC（如果没有时区信息）
+                if deadline_dt.tzinfo is None:
+                    deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
+                else:
+                    # 如果有时区信息，转换为 UTC
+                    deadline_dt = deadline_dt.astimezone(timezone.utc)
+                
+                if now_utc > deadline_dt:
+                    # 显示本地时间格式（更易读）
+                    deadline_local_str = deadline_dt.strftime('%Y-%m-%d %H:%M')
+                    return False, f"⚠️ Testing stage has ended (deadline: {deadline_local_str} UTC). Current UTC time: {now_utc.strftime('%Y-%m-%d %H:%M')} UTC"
         except Exception as e:
             # 如果解析失败，记录错误但不阻止访问（避免配置错误导致无法访问）
             if os.getenv("DEBUG", "").lower() == "true":
