@@ -56,6 +56,10 @@ def check_test_access():
     if not test_enabled:
         return True, None
     
+    # Debug: 显示当前配置（仅在开发环境或出错时）
+    if os.getenv("DEBUG", "").lower() == "true" or (test_deadline and "2025-11-17" in test_deadline):
+        st.sidebar.info(f"🔍 Debug: test_enabled={test_enabled}, deadline='{test_deadline}'")
+    
     # 检查时间限制
     if test_deadline:
         try:
