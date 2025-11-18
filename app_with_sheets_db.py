@@ -31,7 +31,7 @@ def check_test_access():
     # 从 Streamlit secrets 或环境变量读取配置
     test_enabled = os.getenv("TEST_MODE_ENABLED", "false").lower() == "true"
     test_password = os.getenv("TEST_PASSWORD", "")
-    test_deadline = os.getenv("TEST_DEADLINE", "")  # 格式: YYYY-MM-DD
+    test_deadline = os.getenv("TEST_DEADLINE", "")  # 格式: YYYY-MM-DD 或 YYYY-MM-DD HH:MM
     
     # 尝试从 Streamlit secrets 读取（优先级更高）
     try:
@@ -59,10 +59,27 @@ def check_test_access():
     # 检查时间限制
     if test_deadline:
         try:
-            deadline_date = datetime.strptime(test_deadline, "%Y-%m-%d").date()
-            if date.today() > deadline_date:
-                return False, f"⚠️ Testing stage has ended (deadline: {test_deadline})"
-        except:
+            # 支持两种格式：YYYY-MM-DD 或 YYYY-MM-DD HH:MM 或 YYYY-MM-DD HH:MM:SS
+            deadline_dt = None
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                try:
+                    deadline_dt = datetime.strptime(test_deadline, fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if deadline_dt:
+                # 如果没有指定时间，默认为当天的 23:59:59
+                if len(test_deadline.split()) == 1:  # 只有日期，没有时间
+                    deadline_dt = deadline_dt.replace(hour=23, minute=59, second=59)
+                
+                now = datetime.now()
+                if now > deadline_dt:
+                    return False, f"⚠️ Testing stage has ended (deadline: {deadline_dt.strftime('%Y-%m-%d %H:%M')})"
+        except Exception as e:
+            # 如果解析失败，记录错误但不阻止访问（避免配置错误导致无法访问）
+            if os.getenv("DEBUG", "").lower() == "true":
+                st.warning(f"⚠️ Test deadline parsing error: {e}")
             pass
     
     # 检查密码（如果设置了密码）
