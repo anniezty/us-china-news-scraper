@@ -59,6 +59,9 @@ def check_test_access():
     # 检查时间限制
     if test_deadline:
         try:
+            # Debug: 显示读取到的原始 deadline 值
+            debug_info = f"Debug: Read deadline from config: '{test_deadline}'"
+            
             # 支持两种格式：YYYY-MM-DD 或 YYYY-MM-DD HH:MM 或 YYYY-MM-DD HH:MM:SS
             deadline_dt = None
             for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
@@ -85,9 +88,20 @@ def check_test_access():
                     deadline_dt = deadline_dt.astimezone(timezone.utc)
                 
                 if now_utc > deadline_dt:
-                    # 显示本地时间格式（更易读）
+                    # 显示详细的调试信息
                     deadline_local_str = deadline_dt.strftime('%Y-%m-%d %H:%M')
-                    return False, f"⚠️ Testing stage has ended (deadline: {deadline_local_str} UTC). Current UTC time: {now_utc.strftime('%Y-%m-%d %H:%M')} UTC"
+                    error_msg = (
+                        f"⚠️ Testing stage has ended\n\n"
+                        f"**Configuration:** `deadline = \"{test_deadline}\"`\n\n"
+                        f"**Parsed deadline:** {deadline_local_str} UTC\n"
+                        f"**Current UTC time:** {now_utc.strftime('%Y-%m-%d %H:%M')} UTC\n\n"
+                        f"**To fix:** Update `deadline` in Streamlit Cloud Secrets to `\"2025-11-18 22:00\"` (for EST 5pm) or `\"2025-11-18 17:00\"` (for UTC 5pm)"
+                    )
+                    return False, error_msg
+            else:
+                # 如果无法解析 deadline，显示错误但不阻止访问
+                if os.getenv("DEBUG", "").lower() == "true":
+                    st.warning(f"⚠️ Could not parse deadline: '{test_deadline}'. Expected format: YYYY-MM-DD or YYYY-MM-DD HH:MM")
         except Exception as e:
             # 如果解析失败，记录错误但不阻止访问（避免配置错误导致无法访问）
             if os.getenv("DEBUG", "").lower() == "true":
