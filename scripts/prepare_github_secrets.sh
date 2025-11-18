@@ -38,7 +38,7 @@ echo "📋 PRIORITY_SOURCES_LIST (可选):"
 echo "nytimes.com,scmp.com,ft.com,apnews.com,washingtonpost.com,reuters.com"
 echo ""
 echo "💡 提示："
-echo "1. 复制上面的 GOOGLE_CREDENTIALS_JSON 内容
+echo "1. 复制上面的 GOOGLE_CREDENTIALS_JSON 内容"
 echo "2. 在 GitHub 仓库的 Settings → Secrets and variables → Actions 中添加"
 echo "3. Secret 名称: GOOGLE_CREDENTIALS_JSON"
 echo "4. Secret 值: 粘贴上面的 JSON 字符串（一行）"
