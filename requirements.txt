@@ -14,3 +14,5 @@ cloudscraper==1.2.71
 # API classification dependencies
 openai>=1.0.0
 anthropic>=0.7.0
+# SharePoint integration (optional - for migration from Google Sheets)
+Office365-REST-Python-Client>=2.3.0
