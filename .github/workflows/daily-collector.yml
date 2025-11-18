@@ -1,0 +1,53 @@
+name: Daily News Collector
+
+on:
+  # 定时触发：每天在指定时间运行
+  schedule:
+    # GitHub Actions 使用 UTC 时间，所以需要转换为 EST (UTC-5)
+    # EST 时间 → UTC 时间：
+    # EST 08:07 → UTC 13:07 (同一天)
+    # EST 15:07 → UTC 20:07 (同一天)
+    # EST 23:37 → UTC 04:37 (第二天 UTC，但对应 EST 的当天 23:37)
+    - cron: '7 13 * * *'  # UTC 13:07 = EST 08:07 (每天上午)
+    - cron: '7 20 * * *'  # UTC 20:07 = EST 15:07 (每天下午)
+    - cron: '37 4 * * *'  # UTC 04:37 = EST 23:37 (前一天晚上，UTC 第二天)
+  
+  # 允许手动触发（用于测试）
+  workflow_dispatch:
+
+jobs:
+  collect-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run daily collector
+      env:
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        PRIORITY_SOURCES_LIST: ${{ secrets.PRIORITY_SOURCES_LIST }}
+      run: |
+        python daily_collector_to_sheets.py
+    
+    - name: Upload logs (if any)
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: collector-logs
+        path: |
+          logs/*.log
+          *.log
+        if-no-files-found: ignore
+
