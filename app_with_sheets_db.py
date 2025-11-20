@@ -1,5 +1,6 @@
 import streamlit as st
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml, io
 import sys
@@ -183,6 +184,15 @@ def _format_date_label(value):
     return str(value)
 
 
+def _get_local_today():
+    """Return today's date in the configured local timezone."""
+    tz_name = os.getenv("APP_DEFAULT_TZ", "America/New_York")
+    try:
+        return datetime.now(ZoneInfo(tz_name)).date()
+    except Exception:
+        return date.today()
+
+
 def render_results(df: pd.DataFrame, start_date, end_date):
     if df is None or df.empty:
         st.warning("No articles found matching the criteria. Please adjust the date range or sources and try again.")
@@ -249,141 +259,6 @@ def render_results(df: pd.DataFrame, start_date, end_date):
 
     st.markdown("---")
     st.markdown("### 📰 Articles")
-    
-    # Add classification feedback mechanism (improved with category dropdown)
-    if 'classification_feedback' not in st.session_state:
-        st.session_state.classification_feedback = {}
-    
-    # Load all available categories
-    try:
-        import yaml
-        with open('categories_en.yaml', 'r') as f:
-            categories_config = yaml.safe_load(f)
-        all_categories = list(categories_config.get('categories', {}).keys()) + ["Uncategorized"]
-    except:
-        # Fallback: get categories from dataframe
-        all_categories = sorted(df['Category'].unique().tolist()) if 'Category' in df.columns else ["Uncategorized"]
-    
-    # Show feedback option in a collapsible section (expanded by default for visibility)
-    with st.expander("💬 Provide Classification Feedback (Help improve accuracy)", expanded=True):
-        st.markdown("**How it works**: If you find a misclassified article, mark it as incorrect and select the correct category. This feedback will be used to improve future classifications by adding it to the AI's training examples.")
-        st.markdown("---")
-        
-        selected_idx = st.selectbox(
-            "Select an article to provide feedback:",
-            options=range(len(df)),
-            format_func=lambda x: f"{df.iloc[x].get('Headline', 'No title')[:60]}... | Current: {df.iloc[x].get('Category', 'N/A')}"
-        )
-        
-        if selected_idx is not None:
-            selected_row = df.iloc[selected_idx]
-            feedback_key = selected_row.get('URL', f"idx_{selected_idx}")
-            
-            st.markdown(f"**Headline**: {selected_row.get('Headline', 'N/A')}")
-            st.markdown(f"**Summary**: {selected_row.get('Nut Graph', 'N/A')[:200]}...")
-            st.markdown(f"**Current Category**: `{selected_row.get('Category', 'N/A')}`")
-            
-            # Check if feedback already exists
-            feedback_file = "classification_feedback.json"
-            existing_feedback = {}
-            try:
-                import json
-                if os.path.exists(feedback_file):
-                    with open(feedback_file, 'r') as f:
-                        existing_feedback = json.load(f)
-            except:
-                pass
-            
-            feedback_status = existing_feedback.get(feedback_key, {}).get('status', None)
-            
-            if feedback_status:
-                st.info(f"✅ Feedback already recorded: {feedback_status}")
-                if feedback_status == "incorrect":
-                    correct_cat = existing_feedback.get(feedback_key, {}).get('correct_category', 'N/A')
-                    st.info(f"📝 Correct category: `{correct_cat}`")
-            else:
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✅ Correct", key=f"correct_feedback_{selected_idx}"):
-                        # Save feedback
-                        try:
-                            import json
-                            if not os.path.exists(feedback_file):
-                                feedback_data = {}
-                            else:
-                                with open(feedback_file, 'r') as f:
-                                    feedback_data = json.load(f)
-                            
-                            feedback_data[feedback_key] = {
-                                'status': 'correct',
-                                'headline': selected_row.get('Headline', ''),
-                                'summary': selected_row.get('Nut Graph', ''),
-                                'current_category': selected_row.get('Category', ''),
-                                'reason': '',  # Correct classification doesn't need a reason
-                                'timestamp': datetime.now().isoformat()
-                            }
-                            
-                            with open(feedback_file, 'w') as f:
-                                json.dump(feedback_data, f, indent=2)
-                            
-                            st.success("✅ Thank you! Feedback recorded. This will help improve future classifications.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error saving feedback: {e}")
-                
-                with col2:
-                    if st.button("❌ Incorrect", key=f"incorrect_feedback_{selected_idx}"):
-                        st.session_state.classification_feedback[feedback_key] = "incorrect"
-                        st.warning("Please select the correct category below.")
-                        st.rerun()
-                
-                if st.session_state.classification_feedback.get(feedback_key) == "incorrect":
-                    st.markdown("---")
-                    correct_category = st.selectbox(
-                        "What should the correct category be?",
-                        options=all_categories,
-                        key=f"correct_cat_select_{selected_idx}",
-                        index=all_categories.index(selected_row.get('Category', 'Uncategorized')) if selected_row.get('Category', 'Uncategorized') in all_categories else 0
-                    )
-                    
-                    # 添加"原因"输入框（可选）
-                    reason = st.text_area(
-                        "Why is this the correct category? (Optional - helps AI learn better)",
-                        key=f"reason_input_{selected_idx}",
-                        placeholder="Example: This is a state visit where China hosts a foreign leader, involving bilateral diplomatic relations, should be categorized as Multilateralism",
-                        height=100
-                    )
-                    
-                    if st.button("💾 Save Feedback", key=f"save_feedback_{selected_idx}"):
-                        # Save feedback with correct category
-                        try:
-                            import json
-                            if not os.path.exists(feedback_file):
-                                feedback_data = {}
-                            else:
-                                with open(feedback_file, 'r') as f:
-                                    feedback_data = json.load(f)
-                            
-                            feedback_data[feedback_key] = {
-                                'status': 'incorrect',
-                                'headline': selected_row.get('Headline', ''),
-                                'summary': selected_row.get('Nut Graph', ''),
-                                'current_category': selected_row.get('Category', ''),
-                                'correct_category': correct_category,
-                                'reason': reason.strip() if reason else '',  # 添加原因字段
-                                'timestamp': datetime.now().isoformat()
-                            }
-                            
-                            with open(feedback_file, 'w') as f:
-                                json.dump(feedback_data, f, indent=2)
-                            
-                            st.success(f"✅ Feedback saved! This article should be `{correct_category}`. This will be used to improve future classifications.")
-                            st.info("💡 **Next time you classify articles, this feedback will be included in the AI's training examples.**")
-                            del st.session_state.classification_feedback[feedback_key]
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error saving feedback: {e}")
-    
     st.dataframe(df, use_container_width=True, height=600)
 
     st.markdown("---")
@@ -503,15 +378,21 @@ def render_results(df: pd.DataFrame, start_date, end_date):
 # Source multiselect (domain keys from config)
 all_sources = list(CFG.get("rss_feeds", {}).keys())
 col1, col2 = st.columns([1,1])
+local_today = _get_local_today()
 with col1:
-    # Default to yesterday (UTC) to match user's local "today" in EST/EDT
-    # Streamlit Cloud uses UTC, so when it's 11/17 in EST, UTC might be 11/18
-    # Using UTC's "yesterday" as default ensures we get EST's "today"
-    today = date.today()
-    yesterday = today - timedelta(days=1)
-    start_date = st.date_input("Start date", value=yesterday, min_value=date(2000,1,1), max_value=today)
+    start_date = st.date_input(
+        "Start date",
+        value=local_today,
+        min_value=date(2000, 1, 1),
+        max_value=local_today,
+    )
 with col2:
-    end_date = st.date_input("End date (<= today)", value=yesterday, min_value=date(2000,1,1), max_value=today)
+    end_date = st.date_input(
+        "End date (<= today)",
+        value=local_today,
+        min_value=date(2000, 1, 1),
+        max_value=local_today,
+    )
 selected_sources = st.multiselect("Sources (whitelist)", options=all_sources, default=all_sources)
 
 # API Classification toggle
@@ -618,21 +499,17 @@ if HAS_SHEETS:
         try:
             if hasattr(st, 'secrets') and 'GOOGLE_SHEETS_ID' in st.secrets:
                 default_sheets_id = st.secrets['GOOGLE_SHEETS_ID']
-        except:
+        except Exception:
             pass
         # 2. Try reading from environment variables
         if not default_sheets_id:
-            default_sheets_id = os.getenv("GOOGLE_SHEETS_ID", "")
+            default_sheets_id = os.getenv("GOOGLE_SHEETS_ID", "").strip()
         
-        spreadsheet_id = st.text_input(
-            "Google Sheets ID", 
-            value=default_sheets_id,
-            placeholder="Get from Google Sheets URL",
-            help="Example: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
-        )
-        
+        spreadsheet_id = default_sheets_id
         if spreadsheet_id:
-            st.info("✅ Will read historical data for NYT, SCMP, Reuters, Financial Times, Washington Post, and Associated Press from Google Sheets")
+            st.info("✅ Will read historical data for NYT, SCMP, Reuters, Financial Times, Washington Post, and Associated Press from Google Sheets (ID loaded from secrets/environment).")
+        else:
+            st.warning("⚠️ Google Sheets ID not configured. Set `GOOGLE_SHEETS_ID` in Streamlit secrets or environment variables to enable historical data import.")
 
 col_btn1, col_btn2 = st.columns([1, 3])
 with col_btn1:

@@ -275,33 +275,6 @@ def _classify_openai(text: str, categories: list[str]) -> Optional[str]:
             categories_with_desc.append(f"- {cat}: {desc}")
         categories_explanation = "\n".join(categories_with_desc)
         
-        # 加载用户反馈的示例
-        user_feedback_examples = []
-        feedback_file = Path("classification_feedback.json")
-        if feedback_file.exists():
-            try:
-                with open(feedback_file, 'r') as f:
-                    feedback_data = json.load(f)
-                # 只使用"incorrect"的反馈，因为这是用户明确指出的错误分类
-                for url, feedback in feedback_data.items():
-                    if feedback.get('status') == 'incorrect' and feedback.get('correct_category'):
-                        headline = feedback.get('headline', '')
-                        correct_cat = feedback.get('correct_category', '')
-                        reason = feedback.get('reason', '').strip()
-                        # 如果有原因，添加到示例中（让AI更好地理解）
-                        if reason:
-                            user_feedback_examples.append(f'- "{headline}" → {correct_cat} (Reason: {reason})')
-                        else:
-                            user_feedback_examples.append(f'- "{headline}" → {correct_cat}')
-            except Exception as e:
-                # 如果读取失败，忽略（不影响主要功能）
-                pass
-        
-        # 构建用户反馈示例文本
-        user_feedback_text = ""
-        if user_feedback_examples:
-            user_feedback_text = f"\n\nUser feedback examples (recent corrections - use these to improve accuracy):\n" + "\n".join(user_feedback_examples[-20:])  # 使用最近20个反馈（从10个增加到20个）
-        
         # 构建改进的提示词（包含类别说明和示例）
         prompt = f"""You are a professional news classification assistant specializing in US-China relations.
 
@@ -430,8 +403,6 @@ Examples (from your labeled data - 75 real examples covering all 22 categories):
 - "Japan-Australia defense pact sends message to China" → US Multilateralism
 - "U.S. and allies announce new sanctions on Chinese firms" → US Multilateralism
 - "Blinken rallies partners in Pacific against China" → US Multilateralism
-
-{user_feedback_text}
 
 Article to classify:
 {text}
