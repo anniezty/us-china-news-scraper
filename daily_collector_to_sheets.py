@@ -13,13 +13,13 @@ import json
 
 # 优先来源（每天定时收集到 Google Sheets）
 # 如果设置了 PRIORITY_SOURCES_LIST 环境变量，只收集指定的来源
-# 否则收集所有25个outlet（默认行为）
+# 否则默认收集6个优先source（这些source更新频率高，需要定时覆盖）
 RAW_PRIORITY_SOURCES = os.getenv("PRIORITY_SOURCES_LIST", "")
 if RAW_PRIORITY_SOURCES:
     PRIORITY_SOURCES = [s.strip() for s in RAW_PRIORITY_SOURCES.split(",") if s.strip()]
 else:
-    # 默认收集所有outlet（设置为None表示不限制）
-    PRIORITY_SOURCES = None
+    # 默认收集6个优先source（这些source收集不全，需要定时覆盖）
+    PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "ft.com", "apnews.com", "washingtonpost.com", "reuters.com"]
 
 # Google Sheets 配置（从环境变量或配置文件读取）
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_ID", "")
@@ -80,22 +80,15 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     today_str = today.isoformat()
     
     log_print(f"[{datetime.now()}] 开始抓取 {today_str} 的文章...")
+    log_print(f"来源: {PRIORITY_SOURCES} ({len(PRIORITY_SOURCES)} 个优先outlet)")
     
-    # 如果设置了 PRIORITY_SOURCES_LIST，只收集指定的来源；否则收集所有25个outlet
-    if PRIORITY_SOURCES:
-        log_print(f"来源: {PRIORITY_SOURCES} ({len(PRIORITY_SOURCES)} 个outlet)")
-        limit_sources = PRIORITY_SOURCES
-    else:
-        log_print(f"来源: 所有25个outlet")
-        limit_sources = None
-    
-    # 抓取当天的文章
+    # 抓取当天的文章（只收集6个优先source）
     df = collect(
         config_path,
         today_str,
         today_str,
         us_china_only=False,  # 收集所有文章
-        limit_sources=limit_sources
+        limit_sources=PRIORITY_SOURCES
     )
     
     if df.empty:
