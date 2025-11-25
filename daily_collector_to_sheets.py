@@ -12,11 +12,14 @@ import os
 import json
 
 # 优先来源（每天定时收集到 Google Sheets）
+# 如果设置了 PRIORITY_SOURCES_LIST 环境变量，只收集指定的来源
+# 否则收集所有25个outlet（默认行为）
 RAW_PRIORITY_SOURCES = os.getenv("PRIORITY_SOURCES_LIST", "")
 if RAW_PRIORITY_SOURCES:
     PRIORITY_SOURCES = [s.strip() for s in RAW_PRIORITY_SOURCES.split(",") if s.strip()]
 else:
-    PRIORITY_SOURCES = ["nytimes.com", "scmp.com", "ft.com", "apnews.com", "washingtonpost.com", "reuters.com"]
+    # 默认收集所有outlet（设置为None表示不限制）
+    PRIORITY_SOURCES = None
 
 # Google Sheets 配置（从环境变量或配置文件读取）
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_ID", "")
@@ -77,7 +80,14 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
     today_str = today.isoformat()
     
     log_print(f"[{datetime.now()}] 开始抓取 {today_str} 的文章...")
-    log_print(f"来源: {PRIORITY_SOURCES}")
+    
+    # 如果设置了 PRIORITY_SOURCES_LIST，只收集指定的来源；否则收集所有25个outlet
+    if PRIORITY_SOURCES:
+        log_print(f"来源: {PRIORITY_SOURCES} ({len(PRIORITY_SOURCES)} 个outlet)")
+        limit_sources = PRIORITY_SOURCES
+    else:
+        log_print(f"来源: 所有25个outlet")
+        limit_sources = None
     
     # 抓取当天的文章
     df = collect(
@@ -85,7 +95,7 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
         today_str,
         today_str,
         us_china_only=False,  # 收集所有文章
-        limit_sources=PRIORITY_SOURCES
+        limit_sources=limit_sources
     )
     
     if df.empty:
@@ -102,7 +112,7 @@ def collect_and_upload_to_sheets(config_path: str = "config_en.yaml",
         week_start = today - timedelta(days=days_since_monday)  # 本周一
         week_end = week_start + timedelta(days=7)  # 下周一（包含）
         
-        # 使用本周日期范围作为 sheet 名称
+        # 使用本周日期范围作为 sheet 名称（带 Week 前缀，与现有格式一致）
         sheet_name = f"Week {week_start.isoformat()} to {week_end.isoformat()}"
         
         # 只上传需要的列
@@ -134,35 +144,51 @@ def create_weekly_sheet_from_range(spreadsheet_id: str, date_from: str, date_to:
                                    config_path: str = "config_en.yaml",
                                    credentials_path: str = None):
     """
-    为指定日期范围创建或更新 sheet
+    为指定日期范围收集数据并追加到对应的周 sheet
+    
+    注意：会计算日期所在的周（周一到下周一），追加到对应的周 sheet，而不是创建新 sheet
     """
     if not credentials_path:
         credentials_path = get_credentials_path()
     
     print(f"📅 处理日期范围: {date_from} 到 {date_to}")
     
-    # 抓取数据
+    # 计算日期所在的周（周一到下周一）
+    from datetime import datetime, timedelta
+    date_from_obj = datetime.strptime(date_from, "%Y-%m-%d").date()
+    # 计算这周的周一
+    days_since_monday = date_from_obj.weekday()  # 0=Monday, 6=Sunday
+    week_start = date_from_obj - timedelta(days=days_since_monday)  # 本周一
+    week_end = week_start + timedelta(days=7)  # 下周一（包含）
+    
+    # 使用周日期范围作为 sheet 名称（带 Week 前缀，与现有格式一致）
+    sheet_name = f"Week {week_start.isoformat()} to {week_end.isoformat()}"
+    print(f"📅 日期 {date_from} 属于周: {week_start} 到 {week_end}")
+    print(f"📋 将追加到 sheet: {sheet_name}")
+    
+    # 抓取数据（使用与主函数相同的逻辑：如果设置了PRIORITY_SOURCES_LIST则限制，否则收集所有outlet）
     df = collect(
         config_path,
         date_from,
         date_to,
         us_china_only=False,
-        limit_sources=PRIORITY_SOURCES
+        limit_sources=PRIORITY_SOURCES  # 如果为None，则收集所有outlet
     )
     
     if df.empty:
         print("未找到文章")
         return
     
-    # 创建 sheet
-    sheet_name = f"Week {date_from} to {date_to}"
     upload_df = df[["Nested?","URL","Date","Outlet","Headline","Nut Graph"]].copy()
     
     try:
-        export_to_sheets(upload_df, spreadsheet_id, sheet_name, credentials_path)
-        print(f"✅ 成功创建/更新 sheet: {sheet_name} ({len(upload_df)} 篇文章)")
+        # 使用追加模式，追加到对应的周 sheet（不是创建新 sheet）
+        export_to_sheets_append(upload_df, spreadsheet_id, sheet_name, credentials_path)
+        print(f"✅ 成功追加数据到周 sheet: {sheet_name} ({len(upload_df)} 篇文章)")
     except Exception as e:
         print(f"❌ 失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     import sys

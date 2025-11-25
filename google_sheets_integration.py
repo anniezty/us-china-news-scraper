@@ -128,7 +128,15 @@ def export_to_sheets(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = No
 def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: str = None, 
                             credentials_path: str = None, sort_by_date: bool = True):
     """
-    追加 DataFrame 到 Google Sheets（跨 sheet 去重后追加，并按日期排序）
+    追加 DataFrame 到 Google Sheets（新逻辑：检查URL -> 补充新数据 -> 排序）
+    
+    流程：
+    1. 跨 sheet 检查 URL（去重）
+    2. 读取当前 sheet 的现有数据
+    3. 合并新数据（过滤掉已存在的 URL）
+    4. 去重
+    5. 排序
+    6. 重新写入（确保标题行存在）
     
     Args:
         df: 要追加的 DataFrame
@@ -140,250 +148,219 @@ def export_to_sheets_append(df: pd.DataFrame, spreadsheet_id: str, sheet_name: s
     client = get_sheets_client(credentials_path)
     spreadsheet = client.open_by_key(spreadsheet_id)
     
-    # 跨 sheet 去重：收集所有 sheet 中的 URL（用于防止重复添加新数据）
-    # 注意：排除当前 sheet，因为我们要合并到当前 sheet，会在合并后单独处理当前 sheet 的去重
+    # ========== 步骤1: 跨 sheet 检查 URL（去重） ==========
     all_existing_urls = set()
-    current_sheet_urls = set()  # 当前 sheet 的 URL（用于后续合并时去重）
     if 'URL' in df.columns:
         for sheet in spreadsheet.worksheets():
             try:
                 sheet_data = sheet.get_all_values()
-                # 跳过空白 sheet（只有标题行或完全没有数据）
                 if len(sheet_data) <= 1:
                     continue
-                # 确保有标题行且至少有一行数据
                 if len(sheet_data[0]) == 0:
                     continue
                 sheet_df = pd.DataFrame(sheet_data[1:], columns=sheet_data[0])
-                # 确保有 URL 列且有实际数据
                 if 'URL' not in sheet_df.columns:
                     continue
                 urls = sheet_df['URL'].dropna()
-                # 如果没有任何 URL，跳过（可能是空白 sheet）
                 if len(urls) == 0:
                     continue
-                # 如果是当前 sheet，单独记录（用于后续合并时去重）
-                if sheet_name and sheet.title == sheet_name:
-                    current_sheet_urls.update(urls)
-                else:
-                    # 其他 sheet 的 URL 用于跨 sheet 去重
-                    all_existing_urls.update(urls)
+                # 收集所有 sheet 的 URL（包括当前 sheet，用于后续去重）
+                all_existing_urls.update(urls)
             except Exception as e:
                 print(f"⚠️ 读取 sheet '{sheet.title}' 时出错: {e}")
                 continue
         
-        # 过滤掉已存在的 URL（只过滤新数据，不影响现有数据）
-        # 注意：这里只过滤其他 sheet 的 URL，不包含当前 sheet
+        # 过滤掉所有 sheet 中已存在的 URL
         original_count = len(df)
-        df = df[~df['URL'].isin(all_existing_urls)]
+        df = df[~df['URL'].astype(str).str.strip().isin([url.strip() for url in all_existing_urls])]
         if len(df) < original_count:
-            print(f"📝 跨 sheet 去重：过滤掉 {original_count - len(df)} 篇已存在的文章（其他 sheet 中）")
+            print(f"📝 跨 sheet 去重：过滤掉 {original_count - len(df)} 篇已存在的文章")
     
-    # 选择或创建 sheet
+    # ========== 步骤2: 选择或创建 sheet ==========
     if sheet_name:
         try:
             worksheet = spreadsheet.worksheet(sheet_name)
-            # 如果 sheet 已存在，读取现有数据
-            existing_data = worksheet.get_all_values()
-            if len(existing_data) > 1:
-                original_row_count = len(existing_data) - 1  # 减去标题行
-                existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
-                
-                # 保护措施：检查读取的数据量
-                if len(existing_df) != original_row_count:
-                    print(f"⚠️ 警告：读取的数据行数不匹配！期望 {original_row_count} 行，实际 {len(existing_df)} 行")
-                
-                # 确保列名和顺序匹配，避免数据丢失
-                # 使用新数据的列名和顺序作为标准
-                expected_columns = df.columns.tolist()
-                # 如果现有数据的列名不匹配，尝试对齐
-                if list(existing_df.columns) != expected_columns:
-                    print(f"⚠️ 列名不匹配！现有列: {list(existing_df.columns)}, 期望列: {expected_columns}")
-                    # 记录原始行数
-                    before_alignment = len(existing_df)
-                    # 尝试重新对齐列
-                    existing_df_aligned = pd.DataFrame()
-                    for col in expected_columns:
-                        if col in existing_df.columns:
-                            existing_df_aligned[col] = existing_df[col]
-                        else:
-                            existing_df_aligned[col] = None  # 缺失的列填充为 None
-                    existing_df = existing_df_aligned
-                    # 保护措施：检查对齐后行数是否一致
-                    if len(existing_df) != before_alignment:
-                        print(f"⚠️ 警告：列对齐后行数变化！对齐前 {before_alignment} 行，对齐后 {len(existing_df)} 行")
-                        # 如果行数减少，尝试恢复
-                        if len(existing_df) < before_alignment:
-                            print(f"❌ 错误：列对齐导致数据丢失！停止操作，不清空 sheet")
-                            raise ValueError(f"列对齐导致数据丢失：{before_alignment} 行 -> {len(existing_df)} 行")
-                
-                # 确保列顺序一致（不会导致行数减少）
-                existing_df = existing_df[expected_columns]
-                
-                # 保护措施：最终检查
-                if len(existing_df) != original_row_count:
-                    print(f"❌ 错误：数据处理后行数不匹配！原始 {original_row_count} 行，处理后 {len(existing_df)} 行")
-                    raise ValueError(f"数据处理导致数据丢失：{original_row_count} 行 -> {len(existing_df)} 行")
-                # 合并现有数据和新数据
-                # 注意：df 已经跨 sheet 去重（不包含其他 sheet 的 URL），但可能包含当前 sheet 的 URL
-                # 所以需要过滤掉新数据中已在当前 sheet 存在的 URL
-                if current_sheet_urls and 'URL' in df.columns:
-                    before_filter = len(df)
-                    df = df[~df['URL'].isin(current_sheet_urls)]
-                    if len(df) < before_filter:
-                        print(f"📝 当前 sheet 去重：过滤掉 {before_filter - len(df)} 篇已存在的文章（当前 sheet 中）")
-                
-                combined_df = pd.concat([existing_df, df], ignore_index=True)
-                # 在当前 sheet 内去重（清理 existing_df 本身可能存在的重复）
-                if 'URL' in combined_df.columns:
-                    before_dedup = len(combined_df)
-                    # 改进：清理 URL 格式（去除空格、统一格式）避免误判为重复
-                    combined_df['URL_cleaned'] = combined_df['URL'].astype(str).str.strip()
-                    # 使用清理后的 URL 去重
-                    combined_df = combined_df.drop_duplicates(subset=['URL_cleaned'], keep='first')
-                    # 删除临时列
-                    combined_df = combined_df.drop('URL_cleaned', axis=1)
-                    after_dedup = len(combined_df)
-                    if before_dedup > after_dedup:
-                        print(f"📝 Sheet 内去重：移除 {before_dedup - after_dedup} 篇重复文章（清理现有数据中的重复）")
-            else:
-                # sheet 存在但只有标题行，直接使用新数据
-                combined_df = df.copy()
+            sheet_exists = True
         except gspread.exceptions.WorksheetNotFound:
             worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=10)
-            # 新 sheet，直接使用新数据
-            combined_df = df.copy()
-            existing_data = []  # 新 sheet，没有现有数据
+            sheet_exists = False
     else:
         worksheet = spreadsheet.sheet1
+        sheet_exists = True
+    
+    # ========== 步骤3: 读取现有数据并合并新数据 ==========
+    expected_columns = df.columns.tolist()
+    existing_df = pd.DataFrame()
+    
+    # 无论是新sheet还是已存在的sheet，都尝试读取数据
+    try:
         existing_data = worksheet.get_all_values()
-        if len(existing_data) > 1:
-            existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
-            # 确保列名和顺序匹配
-            expected_columns = df.columns.tolist()
-            if list(existing_df.columns) != expected_columns:
-                print(f"⚠️ 列名不匹配！现有列: {list(existing_df.columns)}, 期望列: {expected_columns}")
-                existing_df_aligned = pd.DataFrame()
-                for col in expected_columns:
-                    if col in existing_df.columns:
-                        existing_df_aligned[col] = existing_df[col]
-                    else:
-                        existing_df_aligned[col] = None
-                existing_df = existing_df_aligned
-            existing_df = existing_df[expected_columns]
-            # 合并现有数据和新数据
-            # 注意：df 已经跨 sheet 去重，但可能包含当前 sheet 的 URL
-            # 需要过滤掉新数据中已在当前 sheet 存在的 URL
-            if 'URL' in df.columns:
-                # 从 existing_df 中获取当前 sheet 的 URL
-                current_sheet_urls_from_existing = set(existing_df['URL'].dropna()) if 'URL' in existing_df.columns else set()
-                before_filter = len(df)
-                df = df[~df['URL'].isin(current_sheet_urls_from_existing)]
-                if len(df) < before_filter:
-                    print(f"📝 当前 sheet 去重：过滤掉 {before_filter - len(df)} 篇已存在的文章（当前 sheet 中）")
+        if len(existing_data) > 0:
+            existing_headers = existing_data[0]
             
-            combined_df = pd.concat([existing_df, df], ignore_index=True)
-            # 在当前 sheet 内去重（清理 existing_df 本身可能存在的重复）
-            if 'URL' in combined_df.columns:
-                before_dedup = len(combined_df)
-                # 改进：清理 URL 格式（去除空格、统一格式）避免误判为重复
-                combined_df['URL_cleaned'] = combined_df['URL'].astype(str).str.strip()
-                # 使用清理后的 URL 去重
-                combined_df = combined_df.drop_duplicates(subset=['URL_cleaned'], keep='first')
-                # 删除临时列
-                combined_df = combined_df.drop('URL_cleaned', axis=1)
-                after_dedup = len(combined_df)
-                if before_dedup > after_dedup:
-                    print(f"📝 Sheet 内去重：移除 {before_dedup - after_dedup} 篇重复文章（清理现有数据中的重复）")
+            # 检查标题行是否存在且有效
+            has_valid_header = (len(existing_headers) > 0 and 
+                              any(str(h).strip() for h in existing_headers) and
+                              len(set(str(h).strip() for h in existing_headers if h) & set(expected_columns)) >= 2)
+            
+            if has_valid_header:
+                # 有有效的标题行，读取数据（跳过标题行）
+                if len(existing_data) > 1:
+                    existing_df = pd.DataFrame(existing_data[1:], columns=existing_headers)
+                    # 确保列顺序与期望一致
+                    if set(existing_headers) == set(expected_columns):
+                        existing_df = existing_df[expected_columns]
+                    else:
+                        # 列名不完全匹配，对齐
+                        aligned_df = pd.DataFrame()
+                        for col in expected_columns:
+                            if col in existing_headers:
+                                aligned_df[col] = existing_df[col]
+                            else:
+                                aligned_df[col] = None
+                        existing_df = aligned_df
+                    print(f"📖 读取现有数据: {len(existing_df)} 行")
+                else:
+                    # 只有标题行，没有数据
+                    print(f"ℹ️ Sheet 只有标题行，没有数据")
+            else:
+                # 标题行无效或不存在，第一行可能是数据
+                if len(existing_data) > 0:
+                    # 第一行可能是数据，全部当作数据读取
+                    existing_df = pd.DataFrame(existing_data, columns=expected_columns[:len(existing_data[0])] if existing_data else expected_columns)
+                    # 如果列数不匹配，尝试对齐
+                    if len(existing_data[0]) != len(expected_columns):
+                        aligned_df = pd.DataFrame()
+                        for i, col in enumerate(expected_columns):
+                            if i < len(existing_data[0]):
+                                # 从第一行开始读取所有数据
+                                aligned_df[col] = [row[i] if i < len(row) else "" for row in existing_data]
+                            else:
+                                aligned_df[col] = None
+                        existing_df = aligned_df
+                    print(f"⚠️ 标题行无效，将第一行当作数据读取: {len(existing_df)} 行")
         else:
-            combined_df = df.copy()
+            # Sheet 为空（新sheet）
+            print(f"ℹ️ Sheet 为空（新sheet），将创建标题行")
+    except Exception as e:
+        print(f"⚠️ 读取现有数据时出错: {e}，将当作新sheet处理")
     
-    # 如果没有新数据，只重新排序
-    if df.empty:
-        if len(existing_data) > 1:
-            existing_df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
-            print(f"⚠️ 所有数据已存在（跨 sheet 去重），重新排序现有数据...")
-            if sort_by_date and 'Date' in existing_df.columns:
-                _sort_sheet_by_date(worksheet, existing_df, existing_data[0])
-                print(f"✅ 已按日期排序完成")
-            return
-        else:
-            print(f"⚠️ 没有新数据可追加")
-            return
-    
-    # 保护措施：在清空 sheet 前，检查 combined_df 是否包含所有现有数据
-    if len(existing_data) > 1:
-        original_row_count = len(existing_data) - 1  # 减去标题行
-        if len(combined_df) < original_row_count:
-            print(f"❌ 错误：合并后数据量减少！原始 {original_row_count} 行，合并后 {len(combined_df)} 行")
-            print(f"   停止操作，不清空 sheet，避免数据丢失")
-            raise ValueError(f"合并导致数据丢失：{original_row_count} 行 -> {len(combined_df)} 行")
-    
-    # 按日期排序（从早到晚）
-    if sort_by_date and 'Date' in combined_df.columns:
-        try:
-            # 尝试解析日期（支持多种格式）
-            combined_df['Date_parsed'] = pd.to_datetime(
-                combined_df['Date'], 
-                errors='coerce',
-                format='mixed'  # 支持多种日期格式
-            )
-            # 先按日期排序，然后删除临时列
-            combined_df = combined_df.sort_values('Date_parsed', ascending=True, na_position='last')
-            combined_df = combined_df.drop('Date_parsed', axis=1)
-            print(f"✅ 已按日期排序（从早到晚）")
-        except Exception as e:
-            print(f"⚠️ 日期排序失败: {e}，使用原始顺序")
-            import traceback
-            traceback.print_exc()
-    
-    # 清空 sheet 并重新写入（保留标题行）
-    worksheet.clear()
-    if len(existing_data) > 0:
-        worksheet.append_row(existing_data[0])  # 写入标题行
+    # ========== 步骤4: 合并数据并去重 ==========
+    # 确保 existing_df 和 df 的列顺序一致（在合并前）
+    if not existing_df.empty:
+        # 确保 existing_df 的列顺序与 expected_columns 一致
+        if list(existing_df.columns) != expected_columns:
+            # 重新排列列顺序
+            missing_cols = [col for col in expected_columns if col not in existing_df.columns]
+            if missing_cols:
+                for col in missing_cols:
+                    existing_df[col] = None
+            existing_df = existing_df[expected_columns]
+            print(f"✅ 已调整现有数据的列顺序")
+        
+        # 确保 df 的列顺序也一致
+        if list(df.columns) != expected_columns:
+            missing_cols = [col for col in expected_columns if col not in df.columns]
+            if missing_cols:
+                for col in missing_cols:
+                    df[col] = None
+            df = df[expected_columns]
+        
+        # 合并现有数据和新数据
+        combined_df = pd.concat([existing_df, df], ignore_index=True)
+        print(f"📊 合并数据: 现有 {len(existing_df)} 行 + 新 {len(df)} 行 = {len(combined_df)} 行")
     else:
-        worksheet.append_row(combined_df.columns.tolist())
+        # 确保 df 的列顺序一致
+        if list(df.columns) != expected_columns:
+            missing_cols = [col for col in expected_columns if col not in df.columns]
+            if missing_cols:
+                for col in missing_cols:
+                    df[col] = None
+            df = df[expected_columns]
+        combined_df = df.copy()
     
-    # 写入数据（分批写入）
-    if not combined_df.empty:
-        batch_size = 100
-        rows_written = 0
-        for i in range(0, len(combined_df), batch_size):
-            batch = combined_df.iloc[i:i+batch_size]
-            values = batch.values.tolist()
-            worksheet.append_rows(values)
-            rows_written += len(batch)
+    # 去重（基于 URL）- 必须执行，确保没有重复
+    if 'URL' in combined_df.columns and not combined_df.empty:
+        before_dedup = len(combined_df)
+        # 清理 URL 格式（去除空格、统一格式）
+        combined_df['URL_cleaned'] = combined_df['URL'].astype(str).str.strip().str.lower()
+        # 去除空URL
+        combined_df = combined_df[combined_df['URL_cleaned'] != '']
+        combined_df = combined_df[combined_df['URL_cleaned'] != 'nan']
+        # 去重（保留第一个）
+        combined_df = combined_df.drop_duplicates(subset=['URL_cleaned'], keep='first')
+        combined_df = combined_df.drop('URL_cleaned', axis=1)
+        after_dedup = len(combined_df)
+        if before_dedup > after_dedup:
+            print(f"📝 URL 去重：移除 {before_dedup - after_dedup} 篇重复文章（基于URL）")
+        else:
+            print(f"✅ URL 去重检查完成：无重复（{after_dedup} 行）")
+    else:
+        print(f"⚠️ 警告：无法进行URL去重（URL列不存在或数据为空）")
+    
+    # ========== 步骤5: 只追加新数据，不清空现有数据（完全安全） ==========
+    if df.empty:
+        print(f"ℹ️ 没有新数据可追加")
+        return
+    
+    # 确保新数据的列顺序一致
+    df = df[expected_columns]
+    
+    # 检查并确保标题行存在（只检查，不清空）
+    try:
+        existing_data = worksheet.get_all_values()
+        has_header = False
+        if len(existing_data) > 0:
+            first_row = existing_data[0]
+            first_row_set = set(str(c).strip() for c in first_row if c)
+            expected_set = set(expected_columns)
+            # 如果第一行包含至少3个期望的列名，认为是标题行
+            if len(first_row_set & expected_set) >= 3:
+                has_header = True
         
-        # 保护措施：检查写入的数据量
-        if rows_written != len(combined_df):
-            print(f"⚠️ 警告：写入的数据量不匹配！期望 {len(combined_df)} 行，实际写入 {rows_written} 行")
-        
-        new_count = len(df)
-        total_count = len(combined_df)
-        print(f"✅ 已追加 {new_count} 行新数据，总计 {total_count} 行（已按日期排序）到 Google Sheets: {sheet_name}")
+        if not has_header:
+            # 没有标题行，在第一行插入标题行
+            print(f"⚠️ 检测到没有标题行，将在第一行插入标题行")
+            worksheet.insert_row(expected_columns, 1)
+            print(f"✅ 已插入标题行: {expected_columns}")
+        else:
+            print(f"✅ 标题行已存在")
+    except Exception as e:
+        print(f"⚠️ 检查标题行时出错: {e}，尝试插入标题行")
+        try:
+            existing_data = worksheet.get_all_values()
+            if len(existing_data) == 0 or not any(str(c).strip() for c in existing_data[0] if existing_data):
+                worksheet.insert_row(expected_columns, 1)
+                print(f"✅ 已插入标题行")
+        except:
+            pass
+    
+    # 只追加新数据到 sheet 末尾（完全不清空，绝对安全）
+    batch_size = 100
+    rows_written = 0
+    for i in range(0, len(df), batch_size):
+        batch = df.iloc[i:i+batch_size]
+        values = batch.values.tolist()
+        worksheet.append_rows(values)
+        rows_written += len(batch)
+    
+    # 检查写入的数据量
+    if rows_written != len(df):
+        print(f"⚠️ 警告：写入的数据量不匹配！期望 {len(df)} 行，实际写入 {rows_written} 行")
+    
+    print(f"✅ 完成！已追加 {rows_written} 行新数据到 Google Sheets: {sheet_name}（不清空现有数据，完全安全）")
+    print(f"ℹ️ 注意：如需排序，请在 Google Sheets 中手动排序，或使用 reprocess_sheet.py 脚本")
 
 def _sort_sheet_by_date(worksheet, df: pd.DataFrame, headers: list):
     """
     对 sheet 按日期排序（辅助函数）
+    注意：此函数已弃用，不再使用清空重写的方式，避免数据丢失
+    如需排序，请在 Google Sheets 中手动排序或使用其他安全方式
     """
-    try:
-        # 按日期排序
-        if 'Date' in df.columns:
-            df['Date_parsed'] = pd.to_datetime(df['Date'], errors='coerce')
-            df = df.sort_values('Date_parsed', ascending=True, na_position='last')
-            df = df.drop('Date_parsed', axis=1)
-        
-        # 清空并重新写入
-        worksheet.clear()
-        worksheet.append_row(headers)
-        
-        batch_size = 100
-        for i in range(0, len(df), batch_size):
-            batch = df.iloc[i:i+batch_size]
-            values = batch.values.tolist()
-            worksheet.append_rows(values)
-    except Exception as e:
-        print(f"⚠️ 排序失败: {e}")
+    # 已弃用：不再清空 sheet 重新写入，避免数据丢失
+    # 如果需要排序，请在 Google Sheets 中手动排序
+    print(f"⚠️ _sort_sheet_by_date 已弃用，不再执行排序操作（避免数据丢失）")
+    return
 
 def create_weekly_sheet(df: pd.DataFrame, spreadsheet_id: str, 
                         credentials_path: str = "google_credentials.json"):
@@ -396,9 +373,9 @@ def create_weekly_sheet(df: pd.DataFrame, spreadsheet_id: str,
         if len(dates) > 0:
             start_date = dates.min().strftime("%Y-%m-%d")
             end_date = dates.max().strftime("%Y-%m-%d")
-            sheet_name = f"Week {start_date} to {end_date}"
+            sheet_name = f"{start_date} to {end_date}"
         else:
-            sheet_name = f"Week {datetime.now().strftime('%Y-%m-%d')}"
+            sheet_name = f"{datetime.now().strftime('%Y-%m-%d')}"
     else:
         sheet_name = f"Week {datetime.now().strftime('%Y-%m-%d')}"
     
